@@ -453,6 +453,72 @@ function fetchJson(url, onDone) {
     xhr.send();
 }
 
+/*
+ * 只取服务端时间，用于校正本机时钟。
+ *
+ * 课表的「今天是第几周」完全依赖本机时间：把系统时间改早几周，
+ * 看到的就是错的那一周的课；改早几年，还会显示成「尚未开学」。
+ * 这里读一次响应的 Date 头，和本机时钟比对，差值记进配置，显示时加上去。
+ *
+ * 只取时间、不解析内容，所以顺带也就无所谓这个文件存不存在 ——
+ * 404 响应同样带 Date 头。只有完全没连上（status 0）才算失败，换下一个源。
+ *
+ * onDone(isoString 或 "")：空串表示没网，维持现状、不做校正。
+ */
+function fetchServerTime(onDone) {
+    var urls = urlsFor(new Date().getFullYear());
+    var i = 0;
+
+    function next() {
+        if (i >= urls.length) {
+            onDone("");
+            return;
+        }
+        var url = urls[i];
+        i++;
+        var xhr = new XMLHttpRequest();
+        var settled = false;
+
+        function finish(serverTime) {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            if (serverTime) {
+                onDone(serverTime);
+            } else {
+                next();
+            }
+        }
+
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE) {
+                return;
+            }
+            var t = "";
+            try {
+                var h = xhr.getResponseHeader("Date");
+                if (h) {
+                    var d = new Date(h);
+                    if (!isNaN(d.getTime())) {
+                        t = d.toISOString();
+                    }
+                }
+            } catch (e) { }
+            // status 0 是完全没连上；其它状态（含 404）都说明服务器应答了，
+            // 那个 Date 头就是服务端的当前时间，可信。
+            finish(xhr.status === 0 ? "" : t);
+        };
+        xhr.open("HEAD", url, true);
+        xhr.timeout = 15000;
+        xhr.ontimeout = function () { finish(""); };
+        xhr.onerror = function () { finish(""); };
+        xhr.send();
+    }
+
+    next();
+}
+
 // 拉取并校验需要更新的年份。
 //   onProgress(text) —— 过程反馈（可为 null）
 //   onDone(result)   —— 结束时调用一次：

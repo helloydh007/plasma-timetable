@@ -28,7 +28,7 @@ const CM = loadQmlJs(path.join(UI, "coursemodel.js"), [
     "mapTimeToPeriods", "mapEvent", "colorFor", "normalizeCourse", "mergeSlots",
     "assignColors", "coursesOn", "coursesInWeek", "courseNames",
     "parseWeeksText", "weeksToText", "periodByNode", "textColorFor",
-    "parityOf", "applyParity", "normalizeSpan", "weeksDisplay", "isArrayLike", "looksMisDecoded"
+    "parityOf", "applyParity", "normalizeSpan", "weeksDisplay", "isArrayLike", "looksMisDecoded", "clockSkewSec", "clockOffsetToStore", "applyClockOffset"
 ]);
 const ICS = loadQmlJs(path.join(UI, "ics.js"), [
     "splitLine", "unescapeText", "parseDateValue", "expandWeekly",
@@ -412,6 +412,49 @@ ok("含替换字符能被识别", CM.looksMisDecoded("SUMMARY:高等\uFFFD数学
 // 这条是重点：乱码文件确实「能解析成功」，所以必须靠前置检查拦住
 ok("乱码确实能解析出课程（故必须前置拦截）",
     ICS.toModel(ICS.parseIcs(mojibake), CM, {}).model !== null);
+
+console.log("################ 七、时钟校正 ################\n");
+
+// 本机时钟被改动时，课表不能跟着错：用联网取到的服务端时间算偏移量，
+// 显示时加上去（本机时钟的走时是准的，不准的只是偏移）。
+const LOCAL = new Date(2026, 8, 21, 10, 0, 0);          // 本机读数 2026-09-21
+const TERM = { termStart: "2026-09-07" };
+
+check("本机准确时偏差接近 0", CM.clockSkewSec(LOCAL.toISOString(), LOCAL), 0);
+check("偏差不到一天不校正",
+    CM.clockOffsetToStore(new Date(2026, 8, 21, 10, 0, 30).toISOString(), LOCAL), 0);
+check("偏差刚好一天就校正",
+    CM.clockOffsetToStore(new Date(2026, 8, 22, 10, 0, 0).toISOString(), LOCAL), 86400);
+
+// 用户把系统时间改早了 14 天：真实是 10-05，本机显示 09-21
+const serverAhead = new Date(2026, 9, 5, 10, 0, 0).toISOString();
+check("本机落后 14 天 → 偏移 +14 天",
+    CM.clockOffsetToStore(serverAhead, LOCAL), 14 * 86400);
+// 改晚了 30 天
+check("本机超前 30 天 → 偏移 -30 天",
+    CM.clockOffsetToStore(new Date(2026, 7, 22, 10, 0, 0).toISOString(), LOCAL), -30 * 86400);
+
+// 断网必须返回 null（维持原值），不能返回 0 —— 那会把已有的校正清掉
+check("取不到网络时间 → null", CM.clockOffsetToStore("", LOCAL), null);
+check("网络时间非法 → null", CM.clockOffsetToStore("不是时间", LOCAL), null);
+check("本机时间缺失 → null", CM.clockOffsetToStore(serverAhead, null), null);
+
+check("偏移为 0 时时间不变", CM.applyClockOffset(LOCAL, 0).getTime(), LOCAL.getTime());
+check("正偏移生效", CM.isoOf(CM.applyClockOffset(LOCAL, 14 * 86400)), "2026-10-05");
+check("负偏移生效", CM.isoOf(CM.applyClockOffset(LOCAL, -30 * 86400)), "2026-08-22");
+check("非法偏移按 0 处理", CM.applyClockOffset(LOCAL, "x").getTime(), LOCAL.getTime());
+check("偏移为 null 按 0 处理", CM.applyClockOffset(LOCAL, null).getTime(), LOCAL.getTime());
+
+// 关键一条：本机时间落后时，校正之后算出的周次与真实日期一致
+check("不校正会算错周次", CM.weekOf(TERM, LOCAL), 3);
+check("校正后落到真实的那一周",
+    CM.weekOf(TERM, CM.applyClockOffset(LOCAL, 14 * 86400)), 5);
+// 把系统时间改早几年时，不校正会显示「尚未开学」
+const wayBack = new Date(2020, 0, 1, 10, 0, 0);
+ok("时钟被改早几年：不校正周次为负", CM.weekOf(TERM, wayBack) < 0);
+check("时钟被改早几年：校正后回到真实周次",
+    CM.weekOf(TERM, CM.applyClockOffset(wayBack,
+        CM.clockOffsetToStore(new Date(2026, 8, 21, 10, 0, 0).toISOString(), wayBack))), 3);
 
 console.log("################ 结果 ################");
 if (fails.length === 0) {

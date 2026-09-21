@@ -110,7 +110,12 @@ KCMUtils.SimpleKCM {
     readonly property var parsedStart: CM.parseIsoDate(termStartField.text)
     // 0 = 未填写，1 = 格式无效，2 = 有效
     readonly property int startState: termStartField.text.length === 0 ? 0 : (parsedStart ? 2 : 1)
-    readonly property int todayWeek: parsedStart ? CM.weekOf({ termStart: termStartField.text }, new Date()) : 0
+    // 只读：由组件写入的时钟校正量（秒）。这里读它是为了让「今天是第 N 周」
+    // 和组件显示的一致 —— 本机时间被改过时，两者不一致会让人以为哪个坏了。
+    property int cfg_clockOffsetSec: 0
+    readonly property date now: CM.applyClockOffset(new Date(), cfg_clockOffsetSec)
+    readonly property int todayWeek: parsedStart
+        ? CM.weekOf({ termStart: termStartField.text }, now) : 0
     readonly property int maxNode: Math.max(CM.rowCount({ periods: page.periods }), 1)
 
     function setTermStart(d) {
@@ -413,10 +418,20 @@ KCMUtils.SimpleKCM {
                 if (page.startState === 1) {
                     return i18n("日期格式无效，请使用 yyyy-MM-dd，例如 2026-09-07。");
                 }
-                return page.todayWeek >= 1
-                    ? i18n("今天是第 %1 周。第 1 周从 %2 开始（周一为一周之首）。",
-                           page.todayWeek, CM.isoOf(CM.dateFromDayIndex(CM.mondayOf(page.parsedStart))))
-                    : i18n("距离开学还有 %1 周。", 1 - page.todayWeek);
+                if (page.todayWeek >= 1) {
+                    return i18n("今天是第 %1 周。第 1 周从 %2 开始（周一为一周之首）。",
+                                page.todayWeek,
+                                CM.isoOf(CM.dateFromDayIndex(CM.mondayOf(page.parsedStart))))
+                        + (page.cfg_clockOffsetSec !== 0
+                           ? i18n("\n（本机时间与网络时间相差约 %1 天，已按网络时间计算。）",
+                                  Math.round(page.cfg_clockOffsetSec / 86400))
+                           : "");
+                }
+                // 差得太多就不报数字：本机时间被改早几年会算出「还有 350 周」这种
+                const weeks = 1 - page.todayWeek;
+                return weeks > 52
+                    ? i18n("开学日在很远之后。请确认开学日或本机时间是否正确。")
+                    : i18n("距离开学还有 %1 周。", weeks);
             }
         }
 

@@ -278,6 +278,51 @@ function looksMisDecoded(text) {
 
 
 /*
+ * 时钟校正。
+ *
+ * 课表的「今天是第几周」完全依赖本机时间：把系统时间改早几周，看到的就是
+ * 错的那一周的课；改早几年，还会显示成「尚未开学」。这里用联网取到的
+ * 服务端时间算出差值，显示时加上去 —— 本机时钟的**走时**是准的，
+ * 不准的只是偏移量，所以加一次就够，之后断网也不会退回错误时间。
+ */
+
+// 本机时钟与网络时间的差值（秒）。取不到网络时间返回 null。
+function clockSkewSec(serverIso, localNow) {
+    if (!serverIso) {
+        return null;
+    }
+    var serverMs = new Date(serverIso).getTime();
+    if (isNaN(serverMs) || !localNow) {
+        return null;
+    }
+    return Math.round((serverMs - localNow.getTime()) / 1000);
+}
+
+/*
+ * 该存进配置的偏移量。
+ * 偏差小于一天就不动：那多半只是走时漂移，校正反而让人困惑
+ * （而且校正常常会和技术上正确的显示差几秒，用户会以为是 bug）。
+ * 取不到网络时间时返回 null，表示「维持原值」，不要清掉已有的校正。
+ */
+function clockOffsetToStore(serverIso, localNow) {
+    var skew = clockSkewSec(serverIso, localNow);
+    if (skew === null) {
+        return null;
+    }
+    return Math.abs(skew) >= 86400 ? skew : 0;
+}
+
+// 显示用的「现在」
+function applyClockOffset(localNow, offsetSec) {
+    var off = Number(offsetSec);
+    if (!isFinite(off)) {
+        off = 0;
+    }
+    return new Date(localNow.getTime() + off * 1000);
+}
+
+
+/*
  * 判断是不是数组。
  *
  * 不能用 Object.prototype.toString.call(v) === "[object Array]"：

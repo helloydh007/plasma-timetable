@@ -23,5 +23,10 @@
     <entry name="holidayCache" type="String">
       <default></default>
     </entry>
+    <!-- 本机时钟与网络时间的差值（秒）。用户改动系统时间时，课表按
+         「本机时间 + 这个差值」显示，免得看到错的那一周。0 = 未校正。 -->
+    <entry name="clockOffsetSec" type="Int">
+      <default>0</default>
+    </entry>
   </group>
 </kcfg>

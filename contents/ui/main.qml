@@ -40,9 +40,22 @@ PlasmoidItem {
 
     // ══════════════════ 时间与周次 ══════════════════
 
-    property date today: new Date()
+    // 本机时钟的原始读数，定时刷新。显示用的时间见 today。
+    property date localNow: new Date()
     // 0 = 跟随今天；>0 = 用户翻到的那一周
     property int shownWeek: 0
+
+    // 联网测出的「本机时钟偏差」（秒）。用户把系统时间改早几周时，
+    // 课表仍按真实时间显示，否则看到的会是错的那一周的课。
+    readonly property int clockOffsetSec: Plasmoid.configuration.clockOffsetSec
+    readonly property bool clockAdjusted: clockOffsetSec !== 0
+    readonly property int clockSkewDays: Math.round(clockOffsetSec / 86400)
+    property bool clockChecking: false
+
+    // 显示用的「现在」。本机时钟正常时它就是本机时间；
+    // 被改过且联网测出了差值时，用本机时间加上差值 —— 本机时钟的走时是准的，
+    // 不准的只是偏移量，所以加一次就够了，断网也不会退回错误时间。
+    readonly property date today: CM.applyClockOffset(localNow, clockOffsetSec)
 
     // 今天的实际周次，不夹紧：早于开学 <= 0，学期结束后 > totalWeeks
     readonly property int rawWeekOfToday: CM.weekOf(timetable, today)
@@ -84,7 +97,38 @@ PlasmoidItem {
         interval: 60 * 1000
         running: true
         repeat: true
-        onTriggered: root.today = new Date()
+        onTriggered: root.localNow = new Date()
+    }
+
+    // 定期把本机时钟和网络时间对一次。用户改了系统时间、或者这台机器长期
+    // 没对过时，靠这个把课表拉回真实时间。
+    Timer {
+        interval: 6 * 60 * 60 * 1000
+        running: true
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: root.checkClock()
+    }
+
+    /*
+     * 测一次本机时钟偏差。
+     * 偏差小于一天就不动：那多半只是走时漂移，校正反而让人困惑。
+     * 断网（serverIso 为空）时维持原先的偏差，不退回本机时间 ——
+     * 之前测出来的差值依然成立，本机时钟的走时是准的。
+     */
+    function checkClock() {
+        if (clockChecking) {
+            return;
+        }
+        clockChecking = true;
+        HolidaysNet.fetchServerTime(function (serverIso) {
+            clockChecking = false;
+            // null = 没网，维持原值；不清掉已有校正
+            var offset = CM.clockOffsetToStore(serverIso, new Date());
+            if (offset !== null) {
+                Plasmoid.configuration.clockOffsetSec = offset;
+            }
+        });
     }
 
     // 自动模式下的节假日更新。配置页里手动更新是一次性的，
@@ -103,7 +147,8 @@ PlasmoidItem {
         if (holidayUpdating) {
             return;
         }
-        var now = new Date();
+        // 用校正后的时间做年份判断，本机时间被改过也不会取错年份
+        var now = root.today;
         if (!HolidaysNet.shouldAutoCheck(holidayCache, now)) {
             return;
         }
@@ -178,7 +223,13 @@ PlasmoidItem {
             return { label: "无课表", detail: "", active: false };
         }
         if (termNotStarted) {
-            return { label: "尚未开学", detail: "开学还有 " + (1 - rawWeekOfToday) + " 周", active: false };
+            // 差得太多就不报数字了：本机时间被改早几年会算出「还有 350 周」这种
+            var weeks = 1 - rawWeekOfToday;
+            return {
+                label: "尚未开学",
+                detail: weeks > 52 ? "开学日期或本机时间可能有误" : "开学还有 " + weeks + " 周",
+                active: false
+            };
         }
         if (termEnded) {
             return { label: "本学期已结束", detail: "", active: false };
@@ -271,6 +322,12 @@ PlasmoidItem {
         MouseArea {
             anchors.fill: parent
             onClicked: root.expanded = !root.expanded
+            // 面板上位置小，时间被校正过这件事放提示里说
+            PlasmaComponents.ToolTip.text: root.clockAdjusted
+                ? ("本机时间与网络时间相差约 " + root.clockSkewDays
+                   + " 天，课表已按网络时间显示。建议校正系统时间。")
+                : ""
+            PlasmaComponents.ToolTip.visible: containsMouse && text !== ""
         }
     }
 
@@ -315,6 +372,18 @@ PlasmoidItem {
                     text: root.termNotice
                     opacity: root.termEnded || root.termNotStarted ? 0.9 : 0.6
                     visible: text !== ""
+                }
+
+                // 时间被校正过就明确说出来：否则用户会觉得「组件显示的日期和系统时钟对不上」
+                PlasmaComponents.Label {
+                    visible: root.clockAdjusted
+                    text: "⚠ 时间已校正"
+                    color: Kirigami.Theme.neutralTextColor
+                    HoverHandler { id: clockHover }
+                    PlasmaComponents.ToolTip.text:
+                        "本机时间与网络时间相差约 " + root.clockSkewDays + " 天，"
+                        + "课表已按网络时间显示。建议校正系统时间。"
+                    PlasmaComponents.ToolTip.visible: clockHover.hovered
                 }
 
                 Item { Layout.fillWidth: true }
