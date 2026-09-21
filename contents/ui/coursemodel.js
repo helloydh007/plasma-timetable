@@ -31,7 +31,7 @@ function parseWeeksText(text) {
     var errors = [];
     var s = String(text == null ? "" : text).trim();
     if (!s) {
-        return { weeks: weeks, errors: errors };
+        return { weeks: weeks, span: null, errors: errors };
     }
     // 允许写作 "1-16单周" / "1-16(单)"，末尾的单双标记单独处理
     var parity = 0;
@@ -41,6 +41,19 @@ function parseWeeksText(text) {
         s = s.substring(0, mParity.index);
     }
     var parts = s.split(/[,，、\s]+/);
+    // 用户写下的数字里最小和最大的两个，就是这段周次的起止。
+    // 要在单双周过滤**之前**记下来，否则 "1-18双" 会变成 2..18，
+    // 之后切回单周就少了第 1 周。
+    var lo = 0;
+    var hi = 0;
+    function note(v) {
+        if (lo === 0 || v < lo) {
+            lo = v;
+        }
+        if (v > hi) {
+            hi = v;
+        }
+    }
     for (var i = 0; i < parts.length; i++) {
         var p = parts[i].trim();
         if (!p) {
@@ -54,6 +67,8 @@ function parseWeeksText(text) {
                 errors.push("区间不合法：" + p);
                 continue;
             }
+            note(a);
+            note(b);
             for (var w = a; w <= b; w++) {
                 if (weeks.indexOf(w) < 0) {
                     weeks.push(w);
@@ -67,6 +82,7 @@ function parseWeeksText(text) {
                 errors.push("周次超出范围：" + p);
                 continue;
             }
+            note(n);
             if (weeks.indexOf(n) < 0) {
                 weeks.push(n);
             }
@@ -80,7 +96,7 @@ function parseWeeksText(text) {
         });
     }
     weeks.sort(function (x, y) { return x - y; });
-    return { weeks: weeks, errors: errors };
+    return { weeks: weeks, span: lo >= 1 ? [lo, hi] : null, errors: errors };
 }
 
 // 反过来：连续区间压成 "1-4"，零散的逐个列出
@@ -89,12 +105,34 @@ function weeksToText(weeks) {
     if (list.length === 0) {
         return "";
     }
+
+    // 全是单周或全是双周、且步长正好是 2 时，写成 "1-15单" / "2-16双"。
+    // 这比 "1,3,5,7,9,11,13,15" 短得多，而且 parseWeeksText 能原样读回来。
+    if (list.length >= 3) {
+        var allOdd = true;
+        var allEven = true;
+        var byTwo = true;
+        for (var i = 0; i < list.length; i++) {
+            if (list[i] % 2 === 0) {
+                allOdd = false;
+            } else {
+                allEven = false;
+            }
+            if (i > 0 && list[i] !== list[i - 1] + 2) {
+                byTwo = false;
+            }
+        }
+        if (byTwo && (allOdd || allEven)) {
+            return list[0] + "-" + list[list.length - 1] + (allOdd ? "单" : "双");
+        }
+    }
+
     var out = [];
     var start = list[0];
     var prev = list[0];
-    for (var i = 1; i <= list.length; i++) {
-        var w = list[i];
-        if (i < list.length && w === prev + 1) {
+    for (var j = 1; j <= list.length; j++) {
+        var w = list[j];
+        if (j < list.length && w === prev + 1) {
             prev = w;
             continue;
         }
@@ -105,7 +143,116 @@ function weeksToText(weeks) {
     return out.join(",");
 }
 
+// 0 = 单双周混排（即每周）、1 = 仅单周、2 = 仅双周
+function parityOf(weeks) {
+    var list = weeks || [];
+    if (list.length === 0) {
+        return 0;
+    }
+    var odd = 0;
+    var even = 0;
+    for (var i = 0; i < list.length; i++) {
+        if (list[i] % 2 === 0) {
+            even++;
+        } else {
+            odd++;
+        }
+    }
+    if (odd > 0 && even === 0) {
+        return 1;
+    }
+    if (even > 0 && odd === 0) {
+        return 2;
+    }
+    return 0;
+}
+
+/*
+ * 课程的「周次范围」。
+ *
+ * 为什么不直接用周次列表的 min/max：列表可能已经被单双周过滤过，
+ * [1,3,5] 的 min/max 是 1 和 5，但它的区间原本可能是 1-6。
+ * 反复切换单双周时，如果每次都用过滤后的 min/max 当区间，范围会一轮轮缩水
+ * （1-16 → 单周 1-15 → 双周 2-14 → 每周 2-14，1、15、16 就丢了）。
+ * 所以把用户填的区间单独记下来。span 缺失时退回按周次列表推。
+ */
+function normalizeSpan(span, weeks) {
+    var list = (weeks || []).slice().sort(function (a, b) { return a - b; });
+    var lo = 0;
+    var hi = 0;
+    var ok = false;
+    if (isArrayLike(span) && span.length >= 2) {
+        lo = Math.round(Number(span[0]));
+        hi = Math.round(Number(span[1]));
+        ok = (lo >= 1 && hi >= lo);
+    }
+    if (!ok && list.length > 0) {
+        // 没记录范围（或记录坏了）就退回按周次列表推
+        lo = list[0];
+        hi = list[list.length - 1];
+        ok = (lo >= 1 && hi >= lo);
+    }
+    return ok ? [lo, hi] : null;
+}
+
+/*
+ * 按单双周重排周次。取课程记录的范围（没有就退回 1..totalWeeks）里的
+ * 全部单周（或双周），所以反复切换不会缩水。
+ */
+function applyParity(weeks, parity, totalWeeks, span) {
+    var sp = normalizeSpan(span, weeks);
+    var lo;
+    var hi;
+    if (sp) {
+        lo = sp[0];
+        hi = sp[1];
+    } else {
+        lo = 1;
+        hi = Math.max(1, Math.round(Number(totalWeeks) || 1));
+    }
+    var out = [];
+    for (var w = lo; w <= hi; w++) {
+        if (parity === 1 && w % 2 === 0) {
+            continue;
+        }
+        if (parity === 2 && w % 2 === 1) {
+            continue;
+        }
+        out.push(w);
+    }
+    return out;
+}
+
+/*
+ * 周次的显示文本。单双周要带上真实起止，否则一门 1-16 周的单周课
+ * 会显示成 "1-15单"，用户会以为第 16 周没排。
+ */
+function weeksDisplay(course) {
+    var weeks = (course && course.weeks) || [];
+    var p = parityOf(weeks);
+    var sp = normalizeSpan(course && course.weekSpan, weeks);
+    if (p !== 0 && sp) {
+        return sp[0] + "-" + sp[1] + (p === 1 ? "单" : "双");
+    }
+    return weeksToText(weeks);
+}
+
 // ── 时间与星期的换算 ──
+
+/*
+ * 判断是不是数组。
+ *
+ * 不能用 Object.prototype.toString.call(v) === "[object Array]"：
+ * QML 会把 property var 里的数组转成 QVariantList，它在 JS 引擎里
+ * 不是真正的 Array（toString 给的是 "[object Object]"），但 .length 和下标照常可用。
+ * 这个坑很隐蔽 —— modelData 里的数组就是这种，用它会让判定静默失败、逻辑退化成默认分支。
+ * 所以按行为判断（有 length 和下标），不按类型。
+ */
+function isArrayLike(v) {
+    return v !== null && v !== undefined
+        && typeof v === "object"
+        && typeof v.length === "number";
+}
 
 function pad2(n) {
     return (n < 10 ? "0" : "") + n;
@@ -410,6 +557,7 @@ function normalizeCourse(c, index) {
         startPeriod: sp,
         endPeriod: ep,
         weeks: weeks,
+        weekSpan: normalizeSpan(c && c.weekSpan, weeks),
         color: String((c && c.color) || colorFor(index || 0))
     };
 }

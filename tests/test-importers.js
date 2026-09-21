@@ -27,7 +27,8 @@ const CM = loadQmlJs(path.join(UI, "coursemodel.js"), [
     "rowCount", "rowOfNode", "periodAt", "periodsFromIntervals",
     "mapTimeToPeriods", "mapEvent", "colorFor", "normalizeCourse", "mergeSlots",
     "assignColors", "coursesOn", "coursesInWeek", "courseNames",
-    "parseWeeksText", "weeksToText", "periodByNode", "textColorFor"
+    "parseWeeksText", "weeksToText", "periodByNode", "textColorFor",
+    "parityOf", "applyParity", "normalizeSpan", "weeksDisplay", "isArrayLike"
 ]);
 const ICS = loadQmlJs(path.join(UI, "ics.js"), [
     "unfold", "parseIcs", "teacherFromDescription", "minutesOf", "toSessions", "toModel"
@@ -228,6 +229,128 @@ check("14:00-15:40 落到 5-6 节", (() => {
     const c = wp.courses.filter(x => x.name === "大学英语（读写译）")[0];
     return [c.startPeriod, c.endPeriod];
 })(), [5, 6]);
+
+console.log("################ 五、单双周快捷选项 ################\n");
+
+check("单周判定", CM.parityOf([1, 3, 5, 7]), 1);
+check("双周判定", CM.parityOf([2, 4, 6]), 2);
+check("混合判定为每周", CM.parityOf([1, 2, 3]), 0);
+check("空周次判定为每周", CM.parityOf([]), 0);
+check("单周只有一个也是单周", CM.parityOf([5]), 1);
+
+// 按现有起止周重排
+check("1-6 取单周", CM.applyParity([1, 2, 3, 4, 5, 6], 1, 20), [1, 3, 5]);
+check("1-6 取双周", CM.applyParity([1, 2, 3, 4, 5, 6], 2, 20), [2, 4, 6]);
+check("1-6 取每周", CM.applyParity([1, 2, 3, 4, 5, 6], 0, 20), [1, 2, 3, 4, 5, 6]);
+check("起止不规整时按区间补", CM.applyParity([3, 7], 1, 20), [3, 5, 7]);
+// 周次为空（新建的课）用 1..总周数 兜底，这样直接选单双周也有结果
+check("空周次兜底取单周", CM.applyParity([], 1, 8), [1, 3, 5, 7]);
+check("空周次兜底取双周", CM.applyParity([], 2, 8), [2, 4, 6, 8]);
+check("总周数缺失时兜底 1 周", CM.applyParity([], 1, 0), [1]);
+check("非法单双周值按每周处理", CM.applyParity([1, 2, 3, 4], 9, 20), [1, 2, 3, 4]);
+
+// ── 反复切换不能缩水 ──
+// 光看周次列表推不出原区间（[1,3,5] 的 min/max 是 1..5，原区间可能是 1..6），
+// 所以范围单独记；不给范围的话每切一次就少两周。
+const SPAN = [1, 16];
+let shrink = CM.applyParity([], 0, 20, SPAN);          // 1..16
+shrink = CM.applyParity(shrink, 1, 20, SPAN);          // 单周
+check("切单周", shrink, [1, 3, 5, 7, 9, 11, 13, 15]);
+shrink = CM.applyParity(shrink, 2, 20, SPAN);          // 双周
+check("切双周", shrink, [2, 4, 6, 8, 10, 12, 14, 16]);
+shrink = CM.applyParity(shrink, 0, 20, SPAN);          // 回每周，必须回到 1..16
+check("切回每周不缩水", shrink,
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+// 不给范围时（老数据）退回按周次推，此时会缩水 —— 这是已知的降级行为
+check("无范围时退回按周次推", CM.applyParity([1, 3, 5], 0, 20), [1, 2, 3, 4, 5]);
+
+// ── 周次范围 ──
+check("范围优先于周次", CM.normalizeSpan([1, 16], [1, 3, 5]), [1, 16]);
+check("无范围时按周次推", CM.normalizeSpan(null, [3, 7, 9]), [3, 9]);
+check("周次为空且无范围", CM.normalizeSpan(null, []), null);
+check("坏范围退回按周次推", CM.normalizeSpan([9, 1], [2, 4]), [2, 4]);
+
+// ── 周次框的显示文本 ──
+// 单周课要显示真实起止，否则 1-16 周的单周课显示成 "1-15单"，会让人以为第 16 周没排
+check("单周显示真实起止", CM.weeksDisplay({ weeks: [1, 3, 5, 7, 9, 11, 13, 15], weekSpan: [1, 16] }), "1-16单");
+check("双周显示真实起止", CM.weeksDisplay({ weeks: [2, 4, 6, 8, 10, 12, 14, 16], weekSpan: [1, 16] }), "1-16双");
+check("每周按周次显示", CM.weeksDisplay({ weeks: [1, 2, 3], weekSpan: [1, 3] }), "1-3");
+check("无范围时按周次推显示", CM.weeksDisplay({ weeks: [1, 3, 5] }), "1-5单");
+// 显示的文本必须能被读回同一组周次
+check("显示文本可读回", CM.parseWeeksText(
+    CM.weeksDisplay({ weeks: [1, 3, 5, 7, 9, 11, 13, 15], weekSpan: [1, 16] })).weeks,
+    [1, 3, 5, 7, 9, 11, 13, 15]);
+
+// 单双周写成 "1-15单" 能省很多地方，且必须能原样读回来
+check("单周序列显示为区间", CM.weeksToText([1, 3, 5, 7, 9, 11, 13, 15]), "1-15单");
+check("双周序列显示为区间", CM.weeksToText([2, 4, 6, 8]), "2-8双");
+check("连续区间仍用连字符", CM.weeksToText([1, 2, 3, 4]), "1-4");
+check("零散周次逐个列出", CM.weeksToText([1, 4, 9]), "1,4,9");
+check("单个周次", CM.weeksToText([3]), "3");
+check("空周次", CM.weeksToText([]), "");
+
+// 往返：周次 → 文本 → 周次，必须回到同一个集合
+const roundTrips = [
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    [1, 3, 5, 7, 9, 11, 13, 15],
+    [2, 4, 6, 8, 10, 12, 14, 16],
+    [1, 3],
+    [2, 4],
+    [1, 2, 3],
+    [1, 4, 9],
+    [5],
+    [1, 2, 5, 6, 7, 11]
+];
+let rtOk = true;
+let rtDetail = "";
+for (const w of roundTrips) {
+    const text = CM.weeksToText(w);
+    const back = CM.parseWeeksText(text).weeks;
+    if (JSON.stringify(back) !== JSON.stringify(w)) {
+        rtOk = false;
+        rtDetail += `\n      ${JSON.stringify(w)} → "${text}" → ${JSON.stringify(back)}`;
+    }
+}
+ok("周次文本往返一致", rtOk, rtDetail);
+
+// 手输 "1-16单" 应当和勾选仅单周得到一样的结果
+check("手输 1-16单 等价于仅单周",
+    CM.parseWeeksText("1-16单").weeks, CM.applyParity(CM.parseWeeksText("1-16").weeks, 1, 20));
+check("手输 1-16双 等价于仅双周",
+    CM.parseWeeksText("1-16双").weeks, CM.applyParity(CM.parseWeeksText("1-16").weeks, 2, 20));
+// 范围要取用户写下的起止，且必须在单双周过滤之前记下来
+check("1-18双 的范围是 1-18", CM.parseWeeksText("1-18双").span, [1, 18]);
+check("1-16单 的范围是 1-16", CM.parseWeeksText("1-16单").span, [1, 16]);
+check("1,3,5 的范围是 1-5", CM.parseWeeksText("1,3,5").span, [1, 5]);
+check("1-8,10-14 的范围是 1-14", CM.parseWeeksText("1-8,10-14").span, [1, 14]);
+check("空文本没有范围", CM.parseWeeksText("").span, null);
+// 用这个范围再切单双周，第 1 周不能丢
+check("1-18双 再切单周含第1周",
+    CM.applyParity(CM.parseWeeksText("1-18双").weeks, 1, 20, CM.parseWeeksText("1-18双").span),
+    [1, 3, 5, 7, 9, 11, 13, 15, 17]);
+
+// 下拉框选完再点编辑框，显示的文本要能被读回同样的周次与范围
+check("显示文本可读回周次", CM.parseWeeksText(
+    CM.weeksDisplay({ weeks: [1, 3, 5, 7, 9, 11, 13, 15], weekSpan: [1, 16] })).weeks,
+    [1, 3, 5, 7, 9, 11, 13, 15]);
+check("显示文本可读回范围", CM.parseWeeksText(
+    CM.weeksDisplay({ weeks: [1, 3, 5, 7, 9, 11, 13, 15], weekSpan: [1, 16] })).span, [1, 16]);
+
+// ── QML 的数组不是 JS 数组 ──
+// 委托里的 modelData.weekSpan 打印出来是 [1,16]，但
+// Object.prototype.toString.call() 给的不是 "[object Array]"（QML 的序列类型包装）。
+// 判定若按类型来就会静默失败、退回默认分支 —— 这个 bug 只在真实 QML 里复现，
+// node 里用数组字面量测永远发现不了，所以这里手工造一个「有 length 和下标但不是 Array」的对象。
+const variantList = { 0: 1, 1: 16, length: 2 };
+ok("复现：QVariantList 不是 Array",
+    Object.prototype.toString.call(variantList) !== "[object Array]");
+ok("QVariantList 形态的范围仍能识别",
+    JSON.stringify(CM.normalizeSpan(variantList, [1, 3, 5])) === "[1,16]",
+    JSON.stringify(CM.normalizeSpan(variantList, [1, 3, 5])));
+check("QVariantList 形态的范围参与显示",
+    CM.weeksDisplay({ weeks: [1, 3, 5, 7, 9, 11, 13, 15], weekSpan: variantList }), "1-16单");
+check("QVariantList 形态的周次也能用",
+    CM.parityOf({ 0: 1, 1: 3, 2: 5, length: 3 }), 1);
 
 console.log("################ 结果 ################");
 if (fails.length === 0) {

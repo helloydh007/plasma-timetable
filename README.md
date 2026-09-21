@@ -29,6 +29,12 @@ Class Widgets 是独立的 PyQt 程序、不是 Plasma 组件。所以对 Waylan
 | `1-16单` | 1 到 16 周里的单周 |
 | `1-16双` | 双周 |
 
+懒得算单双周，就用周次右边的**单双周下拉框**（每周 / 仅单周 / 仅双周）：
+它会按当前的起止周自动填好。比如周次填了 `1-16`，选「仅单周」就变成 `1-16单`。
+
+起止周会单独记下来，所以反复切换单双周不会让范围缩水
+（`1-16 → 仅单周 → 仅双周 → 每周` 仍然回到 `1-16`，不会变成 `2-14`）。
+
 ### 2. 导入 ICS（推荐）
 
 教务系统或日历导出的 `.ics` 文件。**用文本编辑器打开，全选复制，粘贴到配置页的
@@ -97,7 +103,7 @@ kpackagetool6 --type Plasma/Applet --remove io.github.helloydh007.timetable
 node tests/test-importers.js
 ```
 
-覆盖 68 项断言：ICS 的折行/TZID/单双周/UNTIL/EXDATE、WakeUp 的 type 单双周与
+覆盖 115 项断言：ICS 的折行/TZID/单双周/UNTIL/EXDATE、WakeUp 的 type 单双周与
 `ownTime` 跳过、两条路径落到同一模型后的网格查询、坏输入不崩、以及配置里手改坏 JSON 的降级。
 
 ### 两个值得知道的设计决定

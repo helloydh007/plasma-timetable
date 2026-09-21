@@ -89,6 +89,22 @@ KCMUtils.SimpleKCM {
         return out;
     }
 
+    /*
+     * 表格列宽固定值。表头那行和各课程行是**各自独立的 GridLayout 实例**，
+     * 如果列宽靠内容撑开（Layout.fillWidth 或只给 preferredWidth 而不限制），
+     * 每个实例算出来的列宽都不一样，表头就和下面的输入框对不上。
+     * 每列在三处都用同一个固定值，就能保证对齐。
+     * 加起来可能比配置窗口宽，所以表格外面套了横向滚动。
+     */
+    readonly property int colName:    Kirigami.Units.gridUnit * 9
+    readonly property int colWeekday: Kirigami.Units.gridUnit * 4.5
+    readonly property int colPeriod:  Kirigami.Units.gridUnit * 8
+    readonly property int colWeeks:   Kirigami.Units.gridUnit * 6
+    readonly property int colParity:  Kirigami.Units.gridUnit * 5.5
+    readonly property int colRoom:    Kirigami.Units.gridUnit * 8
+    readonly property int colTeacher: Kirigami.Units.gridUnit * 5.5
+    readonly property int colDelete:  Kirigami.Units.gridUnit * 2
+
     // ══════════ 学期 ══════════
 
     readonly property var parsedStart: CM.parseIsoDate(termStartField.text)
@@ -118,14 +134,46 @@ KCMUtils.SimpleKCM {
         page.configurationChanged();
     }
 
-    // ══════════ 课程字段编辑：就地改，不重建列表 ══════════
+    // ══════════ 课程字段编辑 ══════════
 
+    // 就地改一格：不重建列表，所以正在输入的焦点不会丢
     function setField(index, key, value) {
         if (index < 0 || index >= page.courses.length) {
             return;
         }
         page.courses[index][key] = value;
         page.courses[index] = CM.normalizeCourse(page.courses[index], index);
+        page.commit();
+    }
+
+    function withField(course, key, value) {
+        var o = {};
+        for (var k in course) {
+            if (Object.prototype.hasOwnProperty.call(course, k)) {
+                o[k] = course[k];
+            }
+        }
+        o[key] = value;
+        return o;
+    }
+
+    /*
+     * 改周次要重建列表，不能像其他字段那样就地改：
+     * 「单双周」下拉框的选中项是从周次推出来的（currentIndex: CM.parityOf(weeks)），
+     * 而普通 JS 对象的属性变化不会触发绑定重算，就地改的话下拉框会停在旧值上。
+     * 重建委托代价很小，而且这条路径本来就不在输入过程中触发。
+     *
+     * span 是用户填的起止周（如 1-16），单独存一份，反复切换单双周时范围不会缩水。
+     */
+    function setWeeksValue(index, weeks, span) {
+        if (index < 0 || index >= page.courses.length) {
+            return;
+        }
+        var arr = page.courses.slice();
+        var updated = page.withField(arr[index], "weeks", weeks);
+        updated = page.withField(updated, "weekSpan", span);
+        arr[index] = CM.normalizeCourse(updated, index);
+        page.courses = arr;
         page.commit();
     }
 
@@ -138,7 +186,22 @@ KCMUtils.SimpleKCM {
         }
         page.importHadError = false;
         page.importStatus = "";
-        page.setField(index, "weeks", r.weeks);
+        // 用解析出的范围（用户写下的起止），而不是过滤后周次的 min/max
+        page.setWeeksValue(index, r.weeks, r.span);
+    }
+
+    // 单双周下拉框：0 每周 / 1 仅单周 / 2 仅双周
+    function setParity(index, parity) {
+        if (index < 0 || index >= page.courses.length) {
+            return;
+        }
+        var c = page.courses[index];
+        var span = CM.normalizeSpan(c.weekSpan, c.weeks);
+        if (!span) {
+            // 新建的课还没有周次，用 1..总周数 起个头
+            span = [1, Math.max(1, page.totalWeeks)];
+        }
+        page.setWeeksValue(index, CM.applyParity(c.weeks, parity, page.totalWeeks, span), span);
     }
 
     function addCourse() {
@@ -433,93 +496,132 @@ KCMUtils.SimpleKCM {
             wrapMode: Text.WordWrap
             opacity: 0.6
             font.pointSize: Math.max(6, Kirigami.Theme.smallFont.pointSize)
-            text: i18n("周次写法：1-16（连续）、1,3,5（零散）、1-16单 / 1-16双（单双周），可混用。")
+            text: i18n("周次写法：1-16（连续）、1,3,5（零散）、1-16单 / 1-16双（单双周），可混用。"
+                       + "懒得算单双周就用右边的下拉框，它会按当前的起止周自动填。")
         }
 
-        GridLayout {
+        // 表格整体可以横向滚动：列宽是固定值，加起来可能比配置窗口宽
+        QQC2.ScrollView {
+            id: tableScroll
             Layout.fillWidth: true
-            columns: 8
-            columnSpacing: Kirigami.Units.smallSpacing
+            Layout.preferredHeight: tableInner.implicitHeight + Kirigami.Units.gridUnit * 0.8
             visible: page.courses.length > 0
+            clip: true
 
-            QQC2.Label { text: i18n("课程名"); Layout.fillWidth: true; opacity: 0.6 }
-            QQC2.Label { text: i18n("星期"); opacity: 0.6 }
-            QQC2.Label { text: i18n("起节"); opacity: 0.6 }
-            QQC2.Label { text: i18n("止节"); opacity: 0.6 }
-            QQC2.Label { text: i18n("周次"); opacity: 0.6 }
-            QQC2.Label { text: i18n("地点"); Layout.fillWidth: true; opacity: 0.6 }
-            QQC2.Label { text: i18n("教师"); Layout.fillWidth: true; opacity: 0.6 }
-            QQC2.Label { text: "" }
-        }
+            ColumnLayout {
+                id: tableInner
+                spacing: Kirigami.Units.smallSpacing
 
-        Repeater {
-            model: page.courses
+                GridLayout {
+                    columns: 8
+                    columnSpacing: Kirigami.Units.smallSpacing
 
-            delegate: GridLayout {
-                id: courseRow
-                required property var modelData
-                required property int index
-
-                Layout.fillWidth: true
-                columns: 8
-                columnSpacing: Kirigami.Units.smallSpacing
-
-                QQC2.ComboBox {
-                    Layout.fillWidth: true
-                    editable: true
-                    model: page.knownNames
-                    currentIndex: Math.max(-1, page.knownNames.indexOf(modelData.name))
-                    editText: modelData.name
-                    onAccepted: page.setField(courseRow.index, "name", editText)
-                    onActivated: page.setField(courseRow.index, "name", editText)
+                    QQC2.Label { Layout.preferredWidth: page.colName;    text: i18n("课程名"); opacity: 0.6 }
+                    QQC2.Label { Layout.preferredWidth: page.colWeekday; text: i18n("星期");   opacity: 0.6 }
+                    QQC2.Label { Layout.preferredWidth: page.colPeriod;  text: i18n("节次");   opacity: 0.6 }
+                    QQC2.Label { Layout.preferredWidth: page.colWeeks;   text: i18n("周次");   opacity: 0.6 }
+                    QQC2.Label { Layout.preferredWidth: page.colParity;  text: i18n("单双周"); opacity: 0.6 }
+                    QQC2.Label { Layout.preferredWidth: page.colRoom;    text: i18n("地点");   opacity: 0.6 }
+                    QQC2.Label { Layout.preferredWidth: page.colTeacher; text: i18n("教师");   opacity: 0.6 }
+                    QQC2.Label { Layout.preferredWidth: page.colDelete;  text: "" }
                 }
 
-                QQC2.ComboBox {
-                    model: page.weekdayChoices
-                    currentIndex: modelData.weekday - 1
-                    onActivated: page.setField(courseRow.index, "weekday", index + 1)
-                }
+                Repeater {
+                    model: page.courses
 
-                QQC2.SpinBox {
-                    from: 1
-                    // 作息表还没填时也要能录入，所以给个下限，不然 SpinBox 会卡在 1
-                    to: Math.max(12, page.periods.length)
-                    value: modelData.startPeriod
-                    onValueModified: page.setField(courseRow.index, "startPeriod", value)
-                }
+                    delegate: GridLayout {
+                        id: courseRow
+                        required property var modelData
+                        required property int index
 
-                QQC2.SpinBox {
-                    from: 1
-                    to: Math.max(12, page.periods.length)
-                    value: modelData.endPeriod
-                    onValueModified: page.setField(courseRow.index, "endPeriod", value)
-                }
+                        columns: 8
+                        columnSpacing: Kirigami.Units.smallSpacing
 
-                QQC2.TextField {
-                    Layout.preferredWidth: Kirigami.Units.gridUnit * 6
-                    text: CM.weeksToText(modelData.weeks)
-                    onEditingFinished: page.setWeeks(courseRow.index, text)
-                }
+                        QQC2.ComboBox {
+                            Layout.preferredWidth: page.colName
+                            editable: true
+                            model: page.knownNames
+                            currentIndex: Math.max(-1, page.knownNames.indexOf(modelData.name))
+                            editText: modelData.name
+                            onAccepted: page.setField(courseRow.index, "name", editText)
+                            onActivated: page.setField(courseRow.index, "name", editText)
+                        }
 
-                QQC2.TextField {
-                    Layout.fillWidth: true
-                    text: modelData.room
-                    placeholderText: i18n("教学楼-教室")
-                    onEditingFinished: page.setField(courseRow.index, "room", text)
-                }
+                        QQC2.ComboBox {
+                            Layout.preferredWidth: page.colWeekday
+                            model: page.weekdayChoices
+                            currentIndex: modelData.weekday - 1
+                            onActivated: page.setField(courseRow.index, "weekday", index + 1)
+                        }
 
-                QQC2.TextField {
-                    Layout.fillWidth: true
-                    text: modelData.teacher
-                    onEditingFinished: page.setField(courseRow.index, "teacher", text)
-                }
+                        // 节次是一列：起 → 止。两个 SpinBox 都窄，配一个破折号
+                        RowLayout {
+                            Layout.preferredWidth: page.colPeriod
+                            spacing: 2
 
-                QQC2.Button {
-                    icon.name: "edit-delete"
-                    display: QQC2.AbstractButton.IconOnly
-                    onClicked: page.removeCourse(courseRow.index)
-                    QQC2.ToolTip.text: i18n("删除这一节")
-                    QQC2.ToolTip.visible: hovered
+                            QQC2.SpinBox {
+                                Layout.fillWidth: true
+                                from: 1
+                                // 作息表还没填时也要能录入，所以给个下限，不然 SpinBox 会卡在 1
+                                to: Math.max(12, page.periods.length)
+                                value: modelData.startPeriod
+                                onValueModified: page.setField(courseRow.index, "startPeriod", value)
+                            }
+                            QQC2.Label { text: "–"; opacity: 0.6 }
+                            QQC2.SpinBox {
+                                Layout.fillWidth: true
+                                from: 1
+                                to: Math.max(12, page.periods.length)
+                                value: modelData.endPeriod
+                                onValueModified: page.setField(courseRow.index, "endPeriod", value)
+                            }
+                        }
+
+                        QQC2.TextField {
+                            Layout.preferredWidth: page.colWeeks
+                            text: CM.weeksDisplay(modelData)
+                            placeholderText: i18n("1-16")
+                            onEditingFinished: page.setWeeks(courseRow.index, text)
+                        }
+
+                        // 单双周：纯快捷方式，不另存状态 —— 选项由周次本身推出来，
+                        // 选一下就把当前的起止周重排成单周或双周。
+                        QQC2.ComboBox {
+                            Layout.preferredWidth: page.colParity
+                            textRole: "text"
+                            model: [
+                                { text: i18n("每周"),   value: 0 },
+                                { text: i18n("仅单周"), value: 1 },
+                                { text: i18n("仅双周"), value: 2 }
+                            ]
+                            currentIndex: CM.parityOf(modelData.weeks)
+                            onActivated: function (index) {
+                                page.setParity(courseRow.index, model[index].value);
+                            }
+                        }
+
+                        QQC2.TextField {
+                            Layout.preferredWidth: page.colRoom
+                            text: modelData.room
+                            placeholderText: i18n("教学楼-教室")
+                            onEditingFinished: page.setField(courseRow.index, "room", text)
+                        }
+
+                        QQC2.TextField {
+                            Layout.preferredWidth: page.colTeacher
+                            text: modelData.teacher
+                            onEditingFinished: page.setField(courseRow.index, "teacher", text)
+                        }
+
+                        QQC2.Button {
+                            Layout.preferredWidth: page.colDelete
+                            icon.name: "edit-delete"
+                            display: QQC2.AbstractButton.IconOnly
+                            onClicked: page.removeCourse(courseRow.index)
+                            QQC2.ToolTip.text: i18n("删除这一节")
+                            QQC2.ToolTip.visible: hovered
+                        }
+                    }
                 }
             }
         }
