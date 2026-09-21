@@ -1,0 +1,6 @@
+# 编辑器与系统杂项
+*~
+*.swp
+.DS_Store
+__pycache__/
+*.pyc

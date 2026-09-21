@@ -1,0 +1,705 @@
+/*
+ * 课表数据模型 —— 三个导入器（手动 / ICS / WakeUp）共同的落点。
+ *
+ * 内部模型只认「星期几 + 第几节 + 哪些周」，因为网格是按这个画的。
+ * 具体日期由 termStart 现算，不存。
+ *
+ * 约定（全组件统一，其他地方不要再自己算）：
+ *   weekday   1=周一 … 7=周日        （不是 JS 的 0=周日）
+ *   node      节次号，1 起，对应 periods[].node
+ *   week      第几周，1 起，第 1 周 = 包含 termStart 的那一周
+ *   一周从周一开始 —— 课表就是周一打头的，不跟 locale 走，
+ *   免得和月历组件那边的周数对不上时让人怀疑哪个错了。
+ */
+
+.pragma library
+
+// 课程色板：都是中深色，浅色/深色主题下配白字都能看清
+var PALETTE = [
+    "#3f51b5", "#00897b", "#c2185b", "#ef6c00",
+    "#5e35b1", "#00838f", "#2e7d32", "#ad1457",
+    "#4527a0", "#00695c", "#d84315", "#283593"
+];
+
+function emptyModel() {
+    return { version: 1, termStart: "", totalWeeks: 20, periods: [], courses: [] };
+}
+
+/*
+ * 调休上班日的上课安排，单独存一个配置键而不是塞进课表模型里。
+ * 原因：调休日的**列表**来自节假日数据（holidays.js / 联网缓存），
+ * 而课表模型的导入器不碰节假日；两者放在同一个配置键里，
+ * 配置页就没法把它们拆给不同的页去编辑（两个页写同一个键会互相覆盖）。
+ *
+ * 键是 "yyyy-MM-dd"。返回 -1 = 未设置，按当天本身的星期几上课；
+ * 0 = 这天不排课；1..7 = 按指定星期几的课表上课。
+ */
+function workAsFor(map, isoDate) {
+    var m = map || {};
+    if (!Object.prototype.hasOwnProperty.call(m, isoDate)) {
+        return -1;
+    }
+    var v = Math.round(Number(m[isoDate]));
+    if (v === 0) {
+        return 0;
+    }
+    return (v >= 1 && v <= 7) ? v : -1;
+}
+
+function parseWorkAs(str) {
+    var out = {};
+    if (!str) {
+        return out;
+    }
+    var raw;
+    try {
+        raw = JSON.parse(String(str));
+    } catch (e) {
+        return out;
+    }
+    if (!raw || typeof raw !== "object") {
+        return out;
+    }
+    for (var k in raw) {
+        if (!Object.prototype.hasOwnProperty.call(raw, k)) {
+            continue;
+        }
+        var v = Math.round(Number(raw[k]));
+        if (parseIsoDate(k) && v >= 0 && v <= 7) {
+            out[k] = v;
+        }
+    }
+    return out;
+}
+
+function serializeWorkAs(map) {
+    return JSON.stringify(map || {});
+}
+
+// 周次文本 ←→ 数组。"1-16"、"1,3,5-9"、"1-16单" 这类写法都能认。
+function parseWeeksText(text) {
+    var weeks = [];
+    var errors = [];
+    var s = String(text == null ? "" : text).trim();
+    if (!s) {
+        return { weeks: weeks, errors: errors };
+    }
+    // 允许写作 "1-16单周" / "1-16(单)"，末尾的单双标记单独处理
+    var parity = 0;
+    var mParity = /(单|双)\s*周?\s*$/.exec(s);
+    if (mParity) {
+        parity = (mParity[1] === "单") ? 1 : 2;
+        s = s.substring(0, mParity.index);
+    }
+    var parts = s.split(/[,，、\s]+/);
+    for (var i = 0; i < parts.length; i++) {
+        var p = parts[i].trim();
+        if (!p) {
+            continue;
+        }
+        var m = /^(\d{1,2})\s*[-~—]\s*(\d{1,2})$/.exec(p);
+        if (m) {
+            var a = Number(m[1]);
+            var b = Number(m[2]);
+            if (a < 1 || b > 60 || b < a) {
+                errors.push("区间不合法：" + p);
+                continue;
+            }
+            for (var w = a; w <= b; w++) {
+                if (weeks.indexOf(w) < 0) {
+                    weeks.push(w);
+                }
+            }
+            continue;
+        }
+        if (/^\d{1,2}$/.test(p)) {
+            var n = Number(p);
+            if (n < 1 || n > 60) {
+                errors.push("周次超出范围：" + p);
+                continue;
+            }
+            if (weeks.indexOf(n) < 0) {
+                weeks.push(n);
+            }
+            continue;
+        }
+        errors.push("看不懂：" + p);
+    }
+    if (parity > 0) {
+        weeks = weeks.filter(function (w) {
+            return parity === 1 ? (w % 2 === 1) : (w % 2 === 0);
+        });
+    }
+    weeks.sort(function (x, y) { return x - y; });
+    return { weeks: weeks, errors: errors };
+}
+
+// 反过来：连续区间压成 "1-4"，零散的逐个列出
+function weeksToText(weeks) {
+    var list = (weeks || []).slice().sort(function (a, b) { return a - b; });
+    if (list.length === 0) {
+        return "";
+    }
+    var out = [];
+    var start = list[0];
+    var prev = list[0];
+    for (var i = 1; i <= list.length; i++) {
+        var w = list[i];
+        if (i < list.length && w === prev + 1) {
+            prev = w;
+            continue;
+        }
+        out.push(start === prev ? String(start) : (start + "-" + prev));
+        start = w;
+        prev = w;
+    }
+    return out.join(",");
+}
+
+// ── 时间与星期的换算 ──
+
+function pad2(n) {
+    return (n < 10 ? "0" : "") + n;
+}
+
+// "08:00" → 480；解析不出来返回 -1
+function minutesOfTime(s) {
+    var m = /^\s*(\d{1,2})\s*[:：]\s*(\d{2})\s*$/.exec(String(s || ""));
+    if (!m) {
+        return -1;
+    }
+    var h = Number(m[1]);
+    var mi = Number(m[2]);
+    if (h > 23 || mi > 59) {
+        return -1;
+    }
+    return h * 60 + mi;
+}
+
+function timeOfMinutes(n) {
+    var v = Number(n);
+    if (!(v >= 0)) {
+        return "";
+    }
+    return pad2(Math.floor(v / 60)) + ":" + pad2(Math.round(v % 60));
+}
+
+// JS 的 getDay()（0=周日）→ 本模型的 weekday（1=周一 … 7=周日）
+function weekdayOf(date) {
+    return ((date.getDay() + 6) % 7) + 1;
+}
+
+// UTC 归一化的"日序号"，跨夏令时也准确
+function dayIndex(date) {
+    return Math.round(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+}
+
+function dateFromDayIndex(n) {
+    return new Date(n * 86400000);
+}
+
+// date 所在周的周一
+function mondayOf(date) {
+    return dayIndex(date) - (weekdayOf(date) - 1);
+}
+
+// 把 "yyyy-MM-dd" 解析成 Date；非法返回 null
+function parseIsoDate(s) {
+    if (!s) {
+        return null;
+    }
+    var m = /^\s*(\d{4})-(\d{1,2})-(\d{1,2})\s*$/.exec(String(s));
+    if (!m) {
+        return null;
+    }
+    var y = Number(m[1]);
+    var mo = Number(m[2]) - 1;
+    var da = Number(m[3]);
+    var d = new Date(y, mo, da);
+    // Date 会把 2026-02-30 进位成 3 月 2 日，回读校验挡掉
+    if (d.getFullYear() !== y || d.getMonth() !== mo || d.getDate() !== da) {
+        return null;
+    }
+    return d;
+}
+
+function isoOf(date) {
+    return date.getFullYear() + "-" + pad2(date.getMonth() + 1) + "-" + pad2(date.getDate());
+}
+
+// 第 1 周的周一（日序号）。termStart 为空返回 null
+function termMondayIndex(model) {
+    var d = parseIsoDate(model && model.termStart);
+    return d ? mondayOf(d) : null;
+}
+
+// date 落在第几周。早于第 1 周返回 <= 0
+function weekOf(model, date) {
+    var base = termMondayIndex(model);
+    if (base === null) {
+        return 0;
+    }
+    return Math.floor((mondayOf(date) - base) / 7) + 1;
+}
+
+// 第 week 周、星期 weekday 的具体日期；未设开学日返回 null
+function dateOf(model, week, weekday) {
+    var base = termMondayIndex(model);
+    if (base === null) {
+        return null;
+    }
+    return dateFromDayIndex(base + (week - 1) * 7 + (weekday - 1));
+}
+
+function weekdayNames() {
+    return ["一", "二", "三", "四", "五", "六", "日"];
+}
+
+function weekdayLabel(weekday) {
+    var n = weekdayNames();
+    return "周" + (n[weekday - 1] || "?");
+}
+
+// ── 作息时间表 ──
+
+/*
+ * 文本 ←→ periods 互转。每行一节："1 08:00-08:45"，# 开头是注释。
+ * 用文本而不是一堆输入框：批量改作息、从教务系统复制过来都方便。
+ */
+function parsePeriodsText(text) {
+    var out = [];
+    var errors = [];
+    var lines = String(text || "").split("\n");
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].replace(/#.*$/, "").trim();
+        if (!line) {
+            continue;
+        }
+        var m = /^(\d{1,2})\s+(\d{1,2}[:：]\d{2})\s*[-~—]\s*(\d{1,2}[:：]\d{2})$/.exec(line);
+        if (!m) {
+            errors.push("第 " + (i + 1) + " 行看不懂：" + line + "（应形如 1 08:00-08:45）");
+            continue;
+        }
+        var s = minutesOfTime(m[2]);
+        var e = minutesOfTime(m[3]);
+        if (s < 0 || e < 0 || e <= s) {
+            errors.push("第 " + (i + 1) + " 行时间不合法：" + line);
+            continue;
+        }
+        out.push({ node: Number(m[1]), start: timeOfMinutes(s), end: timeOfMinutes(e) });
+    }
+    out.sort(function (a, b) { return a.node - b.node; });
+    return { periods: out, errors: errors };
+}
+
+function periodsToText(periods) {
+    var out = [];
+    for (var i = 0; i < (periods || []).length; i++) {
+        var p = periods[i];
+        out.push(p.node + " " + p.start + "-" + p.end);
+    }
+    return out.join("\n");
+}
+
+// 网格行数：节次号的最大值（作息表可能缺号，但仍按最大号排行）
+function rowCount(model) {
+    var max = 0;
+    var list = (model && model.periods) || [];
+    for (var i = 0; i < list.length; i++) {
+        if (list[i].node > max) {
+            max = list[i].node;
+        }
+    }
+    return max;
+}
+
+// 节次号 → 行下标（0 起）。作息表按 node 升序，所以就是位置
+function rowOfNode(model, node) {
+    var list = (model && model.periods) || [];
+    for (var i = 0; i < list.length; i++) {
+        if (list[i].node === node) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+function periodAt(model, row) {
+    var list = (model && model.periods) || [];
+    return (row >= 0 && row < list.length) ? list[row] : null;
+}
+
+function periodByNode(model, node) {
+    var list = (model && model.periods) || [];
+    for (var i = 0; i < list.length; i++) {
+        if (list[i].node === node) {
+            return list[i];
+        }
+    }
+    return null;
+}
+
+/*
+ * 课程块上的文字颜色。
+ * 色板都是中深色配白字没问题，但 WakeUp / ICS 里带的颜色是用户自己在手机上调的，
+ * 可能是亮黄亮绿，白字就糊了。按 WCAG 相对亮度挑黑或白。
+ */
+function textColorFor(hex) {
+    var m = /^#?([0-9a-fA-F]{6})$/.exec(String(hex || ""));
+    if (!m) {
+        return "#ffffff";
+    }
+    var v = m[1];
+    function lin(c) {
+        return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+    var L = 0.2126 * lin(parseInt(v.substring(0, 2), 16) / 255)
+          + 0.7152 * lin(parseInt(v.substring(2, 4), 16) / 255)
+          + 0.0722 * lin(parseInt(v.substring(4, 6), 16) / 255);
+    return L > 0.45 ? "#1d1d1d" : "#ffffff";
+}
+
+// 从若干「时间段」推导作息表：按开始时间排序，去重。ICS 导入用
+function periodsFromIntervals(intervals) {
+    var seen = {};
+    var uniq = [];
+    for (var i = 0; i < (intervals || []).length; i++) {
+        var iv = intervals[i];
+        var k = iv.start + "-" + iv.end;
+        if (!seen[k]) {
+            seen[k] = true;
+            uniq.push({ start: iv.start, end: iv.end });
+        }
+    }
+    uniq.sort(function (a, b) { return a.start - b.start; });
+    var out = [];
+    for (var j = 0; j < uniq.length; j++) {
+        out.push({ node: j + 1, start: timeOfMinutes(uniq[j].start), end: timeOfMinutes(uniq[j].end) });
+    }
+    return out;
+}
+
+// 把一段真实时间落到作息表的节次区间上（按包含关系匹配）
+function mapTimeToPeriods(periods, startMin, endMin) {
+    var first = -1;
+    var last = -1;
+    for (var i = 0; i < (periods || []).length; i++) {
+        var p = periods[i];
+        var ps = minutesOfTime(p.start);
+        var pe = minutesOfTime(p.end);
+        if (ps < 0 || pe < 0) {
+            continue;
+        }
+        if (ps <= startMin && startMin < pe && first < 0) {
+            first = p.node;
+        }
+        if (ps < endMin && endMin <= pe) {
+            last = p.node;
+        }
+    }
+    if (first < 0) {
+        return null;
+    }
+    if (last < first) {
+        last = first;
+    }
+    return { startPeriod: first, endPeriod: last };
+}
+
+/*
+ * 事件时间 → 节次区间。先试"时间完全一致"，再退回包含匹配。
+ *
+ * 为什么要分两步：ICS 里的课往往是"08:00-09:40 连上两小节"，
+ * 它不告诉你 08:45 那里有小节边界。如果作息表就是从这份 ICS 推出来的，
+ * 那每一行的起止就是 08:00-09:40，此时必须整体占一行，
+ * 硬套包含关系会把它摊到两行上（一行 45 分钟、一行 100 分钟），看着就错了。
+ */
+function mapEvent(periods, startMin, endMin) {
+    for (var i = 0; i < (periods || []).length; i++) {
+        var p = periods[i];
+        if (minutesOfTime(p.start) === startMin && minutesOfTime(p.end) === endMin) {
+            return { startPeriod: p.node, endPeriod: p.node };
+        }
+    }
+    return mapTimeToPeriods(periods, startMin, endMin);
+}
+
+// ── 课程 ──
+
+function colorFor(index) {
+    return PALETTE[((index % PALETTE.length) + PALETTE.length) % PALETTE.length];
+}
+
+// 补全字段、夹紧取值。任何脏数据都不应该让界面画出格子外面去
+function normalizeCourse(c, index) {
+    var weekday = Math.round(Number(c && c.weekday));
+    if (!(weekday >= 1 && weekday <= 7)) {
+        weekday = 1;
+    }
+    var sp = Math.round(Number(c && c.startPeriod));
+    var ep = Math.round(Number(c && c.endPeriod));
+    if (!(sp >= 1)) {
+        sp = 1;
+    }
+    if (!(ep >= sp)) {
+        ep = sp;
+    }
+    var weeks = [];
+    var src = (c && c.weeks) || [];
+    for (var i = 0; i < src.length; i++) {
+        var w = Math.round(Number(src[i]));
+        if (w >= 1 && weeks.indexOf(w) < 0) {
+            weeks.push(w);
+        }
+    }
+    weeks.sort(function (a, b) { return a - b; });
+    return {
+        name: String((c && c.name) || "未命名"),
+        teacher: String((c && c.teacher) || ""),
+        room: String((c && c.room) || ""),
+        weekday: weekday,
+        startPeriod: sp,
+        endPeriod: ep,
+        weeks: weeks,
+        color: String((c && c.color) || colorFor(index || 0))
+    };
+}
+
+function colorKey(c) {
+    return ((c.name || "") + "").trim();
+}
+
+/*
+ * 同一门课的多个时段合并周次。
+ * 判等用的是「名字+教师+地点+星期几+节次区间」：
+ *   - 单双周在 ICS 里是两条同地点的事件，合并后周次并集 = 每周，正确；
+ *   - 单周理论课 / 双周实验课地点不同，不会合并，各自保留周次，也正确。
+ */
+function mergeSlots(slots) {
+    var order = [];
+    var map = {};
+    for (var i = 0; i < (slots || []).length; i++) {
+        var s = slots[i];
+        var key = [s.name, s.teacher, s.room, s.weekday, s.startPeriod, s.endPeriod].join("\u0001");
+        if (!map[key]) {
+            map[key] = {
+                name: s.name, teacher: s.teacher, room: s.room,
+                weekday: s.weekday, startPeriod: s.startPeriod, endPeriod: s.endPeriod,
+                weeks: [],
+                color: s.color || ""
+            };
+            order.push(key);
+        }
+        var t = map[key];
+        for (var w = 0; w < (s.weeks || []).length; w++) {
+            if (t.weeks.indexOf(s.weeks[w]) < 0) {
+                t.weeks.push(s.weeks[w]);
+            }
+        }
+    }
+    var out = [];
+    for (var k = 0; k < order.length; k++) {
+        var c = map[order[k]];
+        c.weeks.sort(function (a, b) { return a - b; });
+        out.push(c);
+    }
+    return out;
+}
+
+/*
+ * 给每一门课分配稳定的颜色：同一门课的所有时段同色，不同课尽量不同色。
+ *
+ * 不能只用一个"下一个色板下标"计数器：带颜色的课（WakeUp / ICS 里自带的）
+ * 不占计数器，后面没颜色的课就会从色板头开始取，正好撞上前面已经用掉的色。
+ * 所以先把已有颜色登记成"已占用"，再从剩余色板里取。
+ */
+function assignColors(courses) {
+    var list = courses || [];
+    var byName = {};
+    var used = {};
+    var i, k;
+
+    for (i = 0; i < list.length; i++) {
+        var c0 = list[i];
+        if (c0.color) {
+            k = colorKey(c0);
+            if (!byName[k]) {
+                byName[k] = c0.color;
+            }
+            used[String(c0.color).toLowerCase()] = true;
+        }
+    }
+
+    var cursor = 0;
+    for (i = 0; i < list.length; i++) {
+        var c = list[i];
+        k = colorKey(c);
+        if (byName[k]) {
+            c.color = byName[k];
+            continue;
+        }
+        var pick = "";
+        for (var t = 0; t < PALETTE.length; t++) {
+            var cand = PALETTE[(cursor + t) % PALETTE.length];
+            if (!used[cand]) {
+                pick = cand;
+                cursor = (cursor + t + 1) % PALETTE.length;
+                break;
+            }
+        }
+        if (!pick) {
+            pick = PALETTE[cursor % PALETTE.length];   // 课比色板还多，循环取用
+            cursor = (cursor + 1) % PALETTE.length;
+        }
+        used[pick] = true;
+        byName[k] = pick;
+        c.color = pick;
+    }
+    return list;
+}
+
+// 某周、星期几的课，按开始节次排序
+function coursesOn(model, week, weekday) {
+    var out = [];
+    var list = (model && model.courses) || [];
+    for (var i = 0; i < list.length; i++) {
+        var c = list[i];
+        if (c.weekday !== weekday) {
+            continue;
+        }
+        if ((c.weeks || []).indexOf(week) < 0) {
+            continue;
+        }
+        out.push(c);
+    }
+    out.sort(function (a, b) {
+        if (a.startPeriod !== b.startPeriod) {
+            return a.startPeriod - b.startPeriod;
+        }
+        return (a.name < b.name) ? -1 : (a.name > b.name ? 1 : 0);
+    });
+    return out;
+}
+
+// 整周（周一到周日）的课，便于"上一周/下一周"预览和统计
+function coursesInWeek(model, week) {
+    var out = [];
+    for (var d = 1; d <= 7; d++) {
+        var day = coursesOn(model, week, d);
+        for (var i = 0; i < day.length; i++) {
+            out.push(day[i]);
+        }
+    }
+    return out;
+}
+
+// 同名课程去重后的名字列表，供手动编辑时下拉选择
+function courseNames(model) {
+    var seen = {};
+    var out = [];
+    var list = (model && model.courses) || [];
+    for (var i = 0; i < list.length; i++) {
+        var n = colorKey(list[i]);
+        if (n && !seen[n]) {
+            seen[n] = true;
+            out.push(n);
+        }
+    }
+    out.sort();
+    return out;
+}
+
+/*
+ * 反序列化。任何字段缺失、类型不对都退回默认值 ——
+ * 配置里的 JSON 是用户能手改的，不能因为一个括号就让整个组件画不出来。
+ */
+function parseModel(json) {
+    var m = emptyModel();
+    if (!json) {
+        return m;
+    }
+    var raw;
+    try {
+        raw = JSON.parse(String(json));
+    } catch (e) {
+        return m;
+    }
+    if (!raw || typeof raw !== "object") {
+        return m;
+    }
+    if (typeof raw.termStart === "string" && parseIsoDate(raw.termStart)) {
+        m.termStart = raw.termStart;
+    }
+    var tw = Math.round(Number(raw.totalWeeks));
+    if (tw >= 1 && tw <= 60) {
+        m.totalWeeks = tw;
+    }
+    if (Object.prototype.toString.call(raw.periods) === "[object Array]") {
+        for (var i = 0; i < raw.periods.length; i++) {
+            var p = raw.periods[i] || {};
+            var node = Math.round(Number(p.node));
+            var s = minutesOfTime(p.start);
+            var e = minutesOfTime(p.end);
+            if (node >= 1 && s >= 0 && e > s) {
+                m.periods.push({ node: node, start: timeOfMinutes(s), end: timeOfMinutes(e) });
+            }
+        }
+        m.periods.sort(function (a, b) { return a.node - b.node; });
+    }
+    if (Object.prototype.toString.call(raw.courses) === "[object Array]") {
+        for (var j = 0; j < raw.courses.length; j++) {
+            if (raw.courses[j] && typeof raw.courses[j] === "object") {
+                m.courses.push(normalizeCourse(raw.courses[j], j));
+            }
+        }
+    }
+    // 有课却没有作息表（手改配置、或导入源本身没有节次时间）：
+    // 按课程用到的节次号补出空壳，否则网格会退化成一整行把所有课叠在一起。
+    if (m.periods.length === 0 && m.courses.length > 0) {
+        var nodes = [];
+        for (var q = 0; q < m.courses.length; q++) {
+            var c = m.courses[q];
+            for (var node = c.startPeriod; node <= c.endPeriod; node++) {
+                if (nodes.indexOf(node) < 0) {
+                    nodes.push(node);
+                }
+            }
+        }
+        nodes.sort(function (a, b) { return a - b; });
+        for (var t = 0; t < nodes.length; t++) {
+            m.periods.push({ node: nodes[t], start: "", end: "" });
+        }
+    }
+
+    return m;
+}
+
+function serializeModel(m) {
+    return JSON.stringify({
+        version: 1,
+        termStart: m.termStart || "",
+        totalWeeks: m.totalWeeks || 20,
+        periods: m.periods || [],
+        courses: m.courses || []
+    });
+}
+
+// 导入结果的一句话摘要，配置页和错误提示都用它
+function describeModel(m) {
+    var n = (m.courses || []).length;
+    if (n === 0) {
+        return "课表是空的";
+    }
+    var maxWeek = 0;
+    for (var i = 0; i < m.courses.length; i++) {
+        var w = m.courses[i].weeks || [];
+        for (var j = 0; j < w.length; j++) {
+            if (w[j] > maxWeek) {
+                maxWeek = w[j];
+            }
+        }
+    }
+    var names = courseNames(m).length;
+    return names + " 门课 / " + n + " 个时段 / 最长到第 " + maxWeek + " 周"
+        + (m.termStart ? "（开学 " + m.termStart + "）" : "（未设开学日）");
+}
