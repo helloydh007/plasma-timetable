@@ -761,6 +761,67 @@ function coursesOn(model, week, weekday) {
     return out;
 }
 
+/*
+ * 某一格的课，附带「这一周上不上」。
+ *
+ * includeOffWeek 为真时，把「这个时段有排课、但这一周不上」的课也一并返回
+ * （meets=false），由界面决定灰显并标注。默认不返回 —— 空着比画一堆灰块干净。
+ */
+function slotsOn(model, week, weekday, includeOffWeek) {
+    var out = [];
+    var list = (model && model.courses) || [];
+    for (var i = 0; i < list.length; i++) {
+        var c = list[i];
+        if (c.weekday !== weekday) {
+            continue;
+        }
+        var meets = (c.weeks || []).indexOf(week) >= 0;
+        if (!meets && !includeOffWeek) {
+            continue;
+        }
+        out.push({ course: c, meets: meets });
+    }
+    out.sort(function (a, b) {
+        if (a.course.startPeriod !== b.course.startPeriod) {
+            return a.course.startPeriod - b.course.startPeriod;
+        }
+        // 本周要上的排在前面，这样叠在一起时灰块不会挡住真课
+        if (a.meets !== b.meets) {
+            return a.meets ? -1 : 1;
+        }
+        return 0;
+    });
+    return out;
+}
+
+/*
+ * 课块的灰暗版配色。
+ * 往中性灰里混七成、保留三成原色：既能一眼看出「不用上课」，
+ * 又还认得出是哪一门课（课程表上一片全灰反而看不出区别）。
+ */
+function dimColor(hex) {
+    var m = /^#?([0-9a-fA-F]{6})$/.exec(String(hex || ""));
+    if (!m) {
+        return "#5a5f66";
+    }
+    var v = m[1];
+    var r = parseInt(v.substring(0, 2), 16);
+    var g = parseInt(v.substring(2, 4), 16);
+    var b = parseInt(v.substring(4, 6), 16);
+    var lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    function mix(c) {
+        var n = Math.round(c * 0.3 + lum * 0.7);
+        if (n < 0) {
+            n = 0;
+        }
+        if (n > 255) {
+            n = 255;
+        }
+        return (n < 16 ? "0" : "") + n.toString(16);
+    }
+    return "#" + mix(r) + mix(g) + mix(b);
+}
+
 // 整周（周一到周日）的课，便于"上一周/下一周"预览和统计
 function coursesInWeek(model, week) {
     var out = [];

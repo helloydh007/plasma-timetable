@@ -40,6 +40,7 @@ KCMUtils.SimpleKCM {
     signal configurationChanged()
 
     property alias cfg_timetableData: dataHolder.text
+    property alias cfg_showOffWeekCourses: offWeekSwitch.checked
 
     property string termStart: ""
     property int totalWeeks: 20
@@ -513,6 +514,24 @@ KCMUtils.SimpleKCM {
             wrapMode: Text.WordWrap
             opacity: 0.75
             text: page.summary
+        }
+
+        QQC2.Switch {
+            id: offWeekSwitch
+            text: i18n("显示不在本周上的课（灰显并标注「非本周」）")
+            onToggled: page.configurationChanged()
+        }
+
+        QQC2.Label {
+            Layout.fillWidth: true
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 44
+            wrapMode: Text.WordWrap
+            opacity: 0.6
+            font.pointSize: Math.max(6, Kirigami.Theme.smallFont.pointSize)
+            text: i18n("关掉（默认）时，某个时段这一周不上课就留空。\n"
+                       + "另外：当显示的这一周不是本周时（翻到别的周、或者学期已经结束），"
+                       + "整张表都会灰显并标注「非本周」—— 学期结束后那副样子看起来和平时"
+                       + "一模一样，容易让人以为还要去上课。")
         }
 
         QQC2.Label {

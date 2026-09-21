@@ -196,17 +196,44 @@ PlasmoidItem {
         return { off: false, status: st, date: date };
     }
 
+    /*
+     * 显示的这一周是不是「本周」。
+     * 学期结束后根本不存在本周（今天不在学期里的任何一周），此时为假 ——
+     * 于是整张表都会被标成「非本周」，免得那些课看起来还像要去上的。
+     */
+    readonly property bool viewingCurrentWeek: !termEnded && !termNotStarted
+        && shownWeekNumber === defaultWeek
+
+    // 某一格的课。includeOffWeek 为真时连「这一周不上」的课也返回（带 meets 标记）。
+    function slotsAt(week, weekday, includeOffWeek) {
+        if (resolveDay(week, weekday).off) {
+            return [];      // 放假当天不排课
+        }
+        return CM.slotsOn(timetable, week, weekday, includeOffWeek);
+    }
+
     function coursesAt(week, weekday) {
-        return resolveDay(week, weekday).off ? [] : CM.coursesOn(timetable, week, weekday);
+        var list = slotsAt(week, weekday, false);
+        var out = [];
+        for (var i = 0; i < list.length; i++) {
+            out.push(list[i].course);
+        }
+        return out;
     }
 
     // 当前显示的这一周里、所有要画出来的课程块
     readonly property var cellCourses: {
         var out = [];
+        var withOffWeek = Plasmoid.configuration.showOffWeekCourses;
         for (var wd = 1; wd <= 7; wd++) {
-            var list = coursesAt(shownWeekNumber, wd);
+            var list = slotsAt(shownWeekNumber, wd, withOffWeek);
             for (var i = 0; i < list.length; i++) {
-                out.push({ course: list[i], weekday: wd });
+                out.push({
+                    course: list[i].course,
+                    weekday: wd,
+                    // 灰显的两种情形：这一周不上这门课，或者现在看的压根不是本周
+                    dim: !list[i].meets || !viewingCurrentWeek
+                });
             }
         }
         return out;
@@ -545,10 +572,13 @@ PlasmoidItem {
                         required property var modelData
 
                         readonly property var course: modelData.course
+                        readonly property bool dim: modelData.dim === true
                         readonly property int firstRow: gridArea.rowFor(course.startPeriod)
                         readonly property int lastRow: Math.max(firstRow, gridArea.rowFor(course.endPeriod))
-                        readonly property color blockColor: course.color
-                            ? course.color : Kirigami.Theme.highlightColor
+                        readonly property color blockColor: {
+                            var c = course.color ? course.color : Kirigami.Theme.highlightColor;
+                            return dim ? CM.dimColor(c) : c;
+                        }
                         readonly property color blockText: CM.textColorFor(blockColor)
                         // 去掉上下各 3px 的内边距后真正能放字的高度
                         readonly property real inner: Math.max(0, height - 6)
@@ -559,6 +589,8 @@ PlasmoidItem {
                         height: Math.max(1, (lastRow - firstRow + 1) * gridArea.rowHeight - 2)
                         radius: 3
                         color: blockColor
+                        // 灰显的块整体再压一点，跟「本周要上」的分得更开
+                        opacity: dim ? 0.75 : 1
                         clip: true
 
                         Column {
@@ -568,21 +600,45 @@ PlasmoidItem {
                             spacing: 0
                             clip: true
 
-                            // 只有一节高的时候放不下三行，按可用高度逐级往下减：
-                            // 课名永远留，地点其次，教师最后。硬塞会把字压在块外面。
-                            readonly property bool roomFits: block.inner > Kirigami.Units.gridUnit * 2.4
-                            readonly property bool teacherFits: block.inner > Kirigami.Units.gridUnit * 3.6
+                            /*
+                             * 「非本周」占掉一整行，所以正文可用的高度要先扣掉它，
+                             * 下面「放不下就省略」的判断都按扣完的高度算。
+                             * 早先把它做成右下角浮层，结果和地点/教师叠在一起糊成一片 ——
+                             * 一节高的块里根本挤不下第四行。
+                             */
+                            readonly property bool showBadge:
+                                block.dim && block.width >= badgeLabel.implicitWidth + 6
+                            readonly property real badgeHeight:
+                                showBadge ? Kirigami.Units.gridUnit * 0.85 : 0
+                            readonly property real textHeight:
+                                Math.max(0, block.inner - badgeHeight)
+                            readonly property bool roomFits: textHeight > Kirigami.Units.gridUnit * 2.4
+                            readonly property bool teacherFits: textHeight > Kirigami.Units.gridUnit * 3.6
 
+                            // 用标签自己的宽度判定，别拍脑袋算阈值 ——
+                            // 各主题的 gridUnit 和字号都不一样，猜出来的数只会让角标
+                            // 在某些主题下莫名消失。放不下就不显示，靠灰显本身表达；
+                            // 也不写「【非本周】」的方括号，五个字在窄块里会省略成「【非本…」。
+                            PlasmaComponents.Label {
+                                id: badgeLabel
+                                width: blockCol.width
+                                visible: blockCol.showBadge
+                                text: "非本周"
+                                color: block.blockText
+                                opacity: 0.8
+                                font.pointSize: Math.max(6, Kirigami.Theme.smallFont.pointSize - 2)
+                                elide: Text.ElideRight
+                            }
                             PlasmaComponents.Label {
                                 width: blockCol.width
                                 text: block.course.name
                                 color: block.blockText
                                 font.bold: true
-                                font.pointSize: block.inner < Kirigami.Units.gridUnit * 1.8
+                                font.pointSize: blockCol.textHeight < Kirigami.Units.gridUnit * 1.8
                                     ? Math.max(6, Kirigami.Theme.defaultFont.pointSize - 2)
                                     : Kirigami.Theme.defaultFont.pointSize
                                 wrapMode: Text.Wrap
-                                maximumLineCount: block.inner < Kirigami.Units.gridUnit * 1.8 ? 1 : 2
+                                maximumLineCount: blockCol.textHeight < Kirigami.Units.gridUnit * 1.8 ? 1 : 2
                                 elide: Text.ElideRight
                             }
                             PlasmaComponents.Label {

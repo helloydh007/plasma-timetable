@@ -28,7 +28,7 @@ const CM = loadQmlJs(path.join(UI, "coursemodel.js"), [
     "mapTimeToPeriods", "mapEvent", "colorFor", "normalizeCourse", "mergeSlots",
     "assignColors", "coursesOn", "coursesInWeek", "courseNames",
     "parseWeeksText", "weeksToText", "periodByNode", "textColorFor",
-    "parityOf", "applyParity", "normalizeSpan", "weeksDisplay", "isArrayLike", "looksMisDecoded", "clockSkewSec", "clockOffsetToStore", "applyClockOffset"
+    "parityOf", "applyParity", "normalizeSpan", "weeksDisplay", "isArrayLike", "slotsOn", "dimColor", "looksMisDecoded", "clockSkewSec", "clockOffsetToStore", "applyClockOffset"
 ]);
 const ICS = loadQmlJs(path.join(UI, "ics.js"), [
     "splitLine", "unescapeText", "parseDateValue", "expandWeekly",
@@ -455,6 +455,49 @@ ok("时钟被改早几年：不校正周次为负", CM.weekOf(TERM, wayBack) < 0
 check("时钟被改早几年：校正后回到真实周次",
     CM.weekOf(TERM, CM.applyClockOffset(wayBack,
         CM.clockOffsetToStore(new Date(2026, 8, 21, 10, 0, 0).toISOString(), wayBack))), 3);
+
+console.log("################ 八、非本周课程 ################\n");
+
+// 模拟「有些课只在前几周上」
+const offModel = CM.parseModel(JSON.stringify({
+    termStart: "2026-09-07", totalWeeks: 18,
+    periods: [{ node: 1, start: "08:00", end: "08:45" }],
+    courses: [
+        { name: "高等数学", weekday: 1, startPeriod: 1, endPeriod: 1, weeks: [1,2,3,4] },
+        { name: "选修讲座", weekday: 1, startPeriod: 1, endPeriod: 1, weeks: [10] }
+    ]
+}));
+
+// 第 3 周：两门课都在周一第一节，但只有高等数学这一周上
+const w3 = CM.slotsOn(offModel, 3, 1, true);
+check("第3周两格都在", w3.length, 2);
+check("本周要上的排前面", w3.map(s => s.course.name), ["高等数学", "选修讲座"]);
+check("本周标记", w3.map(s => s.meets), [true, false]);
+check("默认不返回非本周的课", CM.slotsOn(offModel, 3, 1, false).map(s => s.course.name),
+    ["高等数学"]);
+// 第 10 周：轮到讲座，数学不上
+const w10 = CM.slotsOn(offModel, 10, 1, true);
+check("第10周本周标记对调", w10.map(s => [s.course.name, s.meets]),
+    [["选修讲座", true], ["高等数学", false]]);
+check("第10周默认只画讲座", CM.slotsOn(offModel, 10, 1, false).map(s => s.course.name),
+    ["选修讲座"]);
+// 星期几的过滤仍然生效
+check("别的星期几不受影响", CM.slotsOn(offModel, 3, 2, true).length, 0);
+
+// 灰显配色：要往灰里走，但仍认得出是哪门课（不是所有课都变成同一个灰）
+const dimBlue = CM.dimColor("#3f51b5");
+const dimTeal = CM.dimColor("#009688");
+ok("灰显后仍带色相", dimBlue !== dimTeal, dimBlue + " vs " + dimTeal);
+ok("灰显后确实变暗", (() => {
+    const lum = h => {
+        const v = h.replace("#", "");
+        return 0.2126*parseInt(v.slice(0,2),16) + 0.7152*parseInt(v.slice(2,4),16) + 0.0722*parseInt(v.slice(4,6),16);
+    };
+    return Math.abs(lum(dimBlue) - lum("#3f51b5")) < 180;
+})(), dimBlue);
+check("灰显值合法", /^#[0-9a-f]{6}$/.test(dimBlue), true);
+check("非法颜色有兜底", /^#[0-9a-f]{6}$/.test(CM.dimColor("不是颜色")), true);
+check("灰显可重复（纯函数）", CM.dimColor("#3f51b5"), dimBlue);
 
 console.log("################ 结果 ################");
 if (fails.length === 0) {
