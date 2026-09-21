@@ -1,0 +1,5 @@
+1
+[{"node":1,"startTime":"08:00","endTime":"08:45"},{"node":2,"startTime":"08:55","endTime":"09:40"}]
+{"startDate":"2026-09-07","tableName":"2026-2027学年第一学期课程表"}
+[{"id":1,"courseName":"高等数学A（上）","teacher":"张三","color":"#FF3F51B5"},{"id":2,"courseName":"大学物理（单周）","teacher":"李四","color":"#FF009688"}]
+[{"id":1,"day":1,"startNode":1,"step":2,"startWeek":1,"endWeek":16,"type":0,"room":"紫金港东1A-101","teacher":"张三"},{"id":2,"day":3,"startNode":1,"step":1,"startWeek":1,"endWeek":15,"type":1,"room":"西区教二-305","teacher":"李四"}]

@@ -44,9 +44,37 @@ PlasmoidItem {
     // 0 = 跟随今天；>0 = 用户翻到的那一周
     property int shownWeek: 0
 
-    readonly property int weekOfToday: Math.max(1, CM.weekOf(timetable, today))
-    readonly property int shownWeekNumber: shownWeek > 0 ? shownWeek : weekOfToday
+    // 今天的实际周次，不夹紧：早于开学 <= 0，学期结束后 > totalWeeks
+    readonly property int rawWeekOfToday: CM.weekOf(timetable, today)
     readonly property int totalWeeks: Math.max(1, Math.round(Number(timetable.totalWeeks) || 20))
+    readonly property bool termScheduled: timetable.termStart !== ""
+    readonly property bool termEnded: termScheduled && rawWeekOfToday > totalWeeks
+    readonly property bool termNotStarted: termScheduled && rawWeekOfToday < 1
+
+    /*
+     * 显示的周次永远夹在 [1, totalWeeks] 里。
+     * 学期结束后「跟随今天」会算出第 25 周这种学期外的周次，网格会是一片空白 ——
+     * 夹到最后一周末尾更合理，再配一条「本学期已结束」的说明。
+     * 下一周按钮本来就以 totalWeeks 为上限，所以也翻不出去。
+     */
+    readonly property int defaultWeek: Math.min(Math.max(1, rawWeekOfToday), totalWeeks)
+    readonly property int shownWeekNumber: Math.min(
+        Math.max(1, shownWeek > 0 ? shownWeek : defaultWeek), totalWeeks)
+
+    // 工具条上跟在「第 N 周」后面的说明
+    readonly property string termNotice: {
+        if (!termScheduled) {
+            return "";
+        }
+        if (termEnded) {
+            return "（本学期已结束）";
+        }
+        if (termNotStarted) {
+            return "（尚未开学）";
+        }
+        return shownWeekNumber === defaultWeek ? "（本周）" : "";
+    }
+
     readonly property int periodRows: Math.max(1, CM.rowCount(timetable))
 
     readonly property string weekdayHeader: "一二三四五六日"
@@ -149,8 +177,14 @@ PlasmoidItem {
         if (!hasCourses) {
             return { label: "无课表", detail: "", active: false };
         }
+        if (termNotStarted) {
+            return { label: "尚未开学", detail: "开学还有 " + (1 - rawWeekOfToday) + " 周", active: false };
+        }
+        if (termEnded) {
+            return { label: "本学期已结束", detail: "", active: false };
+        }
         var wd = CM.weekdayOf(today);
-        var list = coursesAt(weekOfToday, wd);
+        var list = coursesAt(shownWeekNumber, wd);
         var nowMin = today.getHours() * 60 + today.getMinutes();
         var i;
 
@@ -184,7 +218,7 @@ PlasmoidItem {
                 };
             }
         }
-        var r = resolveDay(weekOfToday, wd);
+        var r = resolveDay(shownWeekNumber, wd);
         if (r.status && r.status.type === "off") {
             return { label: "放假", detail: r.status.name, active: false };
         }
@@ -193,30 +227,50 @@ PlasmoidItem {
 
     readonly property var panelInfo: nextClass()
 
-    compactRepresentation: MouseArea {
+    compactRepresentation: Item {
         id: compact
-        implicitWidth: compactRow.implicitWidth + Kirigami.Units.smallSpacing * 2
-        implicitHeight: compactRow.implicitHeight + Kirigami.Units.smallSpacing * 2
-        onClicked: root.expanded = !root.expanded
 
+        // 面板取尺寸用的是 Layout.* 附加属性，不是 implicitWidth/Height ——
+        // 内置的 showdesktop / systemtray / 数字时钟都是这么声明的。
+        // 只写 implicit 的话面板会按默认的小方块（28×28）给它，内容全挤没了。
+        readonly property real contentWidth: compactRow.implicitWidth + Kirigami.Units.smallSpacing * 2
+        Layout.minimumWidth: Kirigami.Units.gridUnit * 4
+        Layout.preferredWidth: contentWidth
+        Layout.minimumHeight: compactRow.implicitHeight
+        Layout.preferredHeight: compactRow.implicitHeight
+        implicitWidth: contentWidth
+        implicitHeight: compactRow.implicitHeight
+
+        // 被压窄时内容跟着缩，文字的 elide 才生效；用 anchors.centerIn 保持原宽居中
+        // 会让内容溢到面板外面去。
         RowLayout {
             id: compactRow
-            anchors.centerIn: parent
+            anchors.fill: parent
             spacing: Kirigami.Units.smallSpacing
+
             PlasmaComponents.Label {
                 text: root.panelInfo.active ? "●" : "○"
                 color: root.panelInfo.active ? Kirigami.Theme.positiveTextColor
                                              : Kirigami.Theme.textColor
             }
             PlasmaComponents.Label {
+                Layout.fillWidth: true
                 text: root.panelInfo.label
                 font.bold: true
+                elide: Text.ElideRight
             }
             PlasmaComponents.Label {
+                Layout.maximumWidth: implicitWidth
                 text: root.panelInfo.detail
                 opacity: 0.7
+                elide: Text.ElideRight
                 visible: text !== ""
             }
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: root.expanded = !root.expanded
         }
     }
 
@@ -258,16 +312,17 @@ PlasmoidItem {
                 }
 
                 PlasmaComponents.Label {
-                    text: root.shownWeekNumber === root.weekOfToday ? "（本周）" : ""
-                    opacity: 0.6
+                    text: root.termNotice
+                    opacity: root.termEnded || root.termNotStarted ? 0.9 : 0.6
                     visible: text !== ""
                 }
 
                 Item { Layout.fillWidth: true }
 
                 PlasmaComponents.Button {
-                    text: "回到本周"
-                    visible: root.shownWeek > 0 && root.shownWeekNumber !== root.weekOfToday
+                    // 学期结束后「本周」不存在了，这个按钮的落点变成最后一周
+                    text: root.termEnded ? "回到最后一周" : "回到本周"
+                    visible: root.shownWeek > 0 && root.shownWeekNumber !== root.defaultWeek
                     onClicked: root.shownWeek = 0
                 }
             }

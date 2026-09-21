@@ -240,6 +240,44 @@ function weeksDisplay(course) {
 // ── 时间与星期的换算 ──
 
 /*
+ * 判断一段文本是不是「编码没对上」。
+ *
+ * 典型场景：教务系统导出的 .ics / .wakeup_schedule 是 GBK/GB18030，
+ * 用户用按 UTF-8 打开的编辑器复制出来，每个字节变成一个 U+0080–U+00FF 的字符，
+ * 中文全变成 "é«æ°å¦A" 这种。
+ *
+ * 这种情况必须拦住：解析器根本不会报错 —— BEGIN/END、属性名这些都是 ASCII，
+ * 结构照样解析得出来，只是课名、教师、地点全成了乱码。用户拿到的是一份
+ * 看起来正常、内容全错的课表，比直接失败糟糕得多。
+ */
+function looksMisDecoded(text) {
+    var s = String(text || "");
+    if (s.length === 0) {
+        return false;
+    }
+    var cjk = 0;
+    var latin1 = 0;
+    var bad = 0;
+    var limit = Math.min(s.length, 20000);      // 看开头一段就够判断了
+    for (var i = 0; i < limit; i++) {
+        var c = s.charCodeAt(i);
+        if (c === 0xFFFD) {
+            bad++;
+        } else if (c >= 0x4E00 && c <= 0x9FFF) {
+            cjk++;
+        } else if (c >= 0x80 && c <= 0xFF) {
+            latin1++;
+        }
+    }
+    if (bad > 0) {
+        return true;                            // 解码时就已经丢字符了
+    }
+    // 正常的中文课表不会出现成片的 U+0080–U+00FF 字符
+    return cjk === 0 && latin1 > 20;
+}
+
+
+/*
  * 判断是不是数组。
  *
  * 不能用 Object.prototype.toString.call(v) === "[object Array]"：

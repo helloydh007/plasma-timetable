@@ -28,9 +28,10 @@ const CM = loadQmlJs(path.join(UI, "coursemodel.js"), [
     "mapTimeToPeriods", "mapEvent", "colorFor", "normalizeCourse", "mergeSlots",
     "assignColors", "coursesOn", "coursesInWeek", "courseNames",
     "parseWeeksText", "weeksToText", "periodByNode", "textColorFor",
-    "parityOf", "applyParity", "normalizeSpan", "weeksDisplay", "isArrayLike"
+    "parityOf", "applyParity", "normalizeSpan", "weeksDisplay", "isArrayLike", "looksMisDecoded"
 ]);
 const ICS = loadQmlJs(path.join(UI, "ics.js"), [
+    "splitLine", "unescapeText", "parseDateValue", "expandWeekly",
     "unfold", "parseIcs", "teacherFromDescription", "minutesOf", "toSessions", "toModel"
 ]);
 const WU = loadQmlJs(path.join(UI, "wakeup.js"), [
@@ -351,6 +352,66 @@ check("QVariantList 形态的范围参与显示",
     CM.weeksDisplay({ weeks: [1, 3, 5, 7, 9, 11, 13, 15], weekSpan: variantList }), "1-16单");
 check("QVariantList 形态的周次也能用",
     CM.parityOf({ 0: 1, 1: 3, 2: 5, length: 3 }), 1);
+
+console.log("################ 六、中文与编码 ################\n");
+
+// ── 中文本身就是常规输入，不是特例 ──
+const zhIcs = fs.readFileSync(path.join(__dirname, "sample-zh.ics"), "utf8");
+const zhModel = CM.parseModel(CM.serializeModel(ICS.toModel(ICS.parseIcs(zhIcs), CM, {}).model));
+const zhByName = {};
+for (const c of zhModel.courses) zhByName[c.name] = c;
+
+check("中文课程名（含全角括号）", Object.keys(zhByName).sort(),
+    ["大学物理（单周）", "高等数学A（上）"]);
+check("中文地点（含折行还原）", zhByName["高等数学A（上）"].room,
+    "紫金港校区东一教学楼A座101多媒体教室（靠近南门）");
+check("中文教师（从 DESCRIPTION 的「教师：」取）", zhByName["高等数学A（上）"].teacher, "张三");
+check("中文 TZID 不影响课次数量", zhByName["高等数学A（上）"].weeks.length, 16);
+
+// ── 全角冒号当分隔符 ──
+// 从网页、聊天记录里复制的 ICS，中文输入法常把 : 打成 ：，整份文件就解析不出来了
+const fullWidth = zhIcs.replace(/^(SUMMARY|LOCATION|DESCRIPTION|UID|DTSTART|DTEND|RRULE|BEGIN|END)(?=[;:：])/gm,
+    (m) => m.replace(/:$/, "："));
+const fwRes = ICS.toModel(ICS.parseIcs(fullWidth), CM, {});
+check("全角冒号也认（无错误）", fwRes.errors, []);
+ok("全角冒号也认（拿到课程）", fwRes.model !== null);
+if (fwRes.model) {
+    const m = CM.parseModel(CM.serializeModel(fwRes.model));
+    check("全角冒号下课程名正确", m.courses.map(c => c.name).sort(),
+        ["大学物理（单周）", "高等数学A（上）"]);
+}
+// 取的是第一个冒号，所以值里的全角冒号原样保留
+check("首个冒号才作分隔", ICS.splitLine("DESCRIPTION:教师：张三").value, "教师：张三");
+check("全角冒号分隔时值仍干净", ICS.splitLine("DESCRIPTION：教师：张三").value, "教师：张三");
+check("引号内的冒号不作分隔",
+    ICS.splitLine('ATTENDEE;CN="张三:李四":mailto:x@y').value, "mailto:x@y");
+
+// ── BOM ──
+check("ICS 带 BOM 仍能解析", ICS.toModel(ICS.parseIcs("\uFEFF" + zhIcs), CM, {}).errors, []);
+const zhWu = fs.readFileSync(path.join(__dirname, "sample-zh.wakeup_schedule"), "utf8");
+const zhWuRes = WU.parseWakeUp(zhWu);
+check("WakeUp 中文无错误", zhWuRes.errors, []);
+check("WakeUp 中文课名", zhWuRes.model.courses.map(c => c.name).sort(),
+    ["大学物理（单周）", "高等数学A（上）"]);
+check("WakeUp 中文地点", zhWuRes.model.courses[0].room, "紫金港东1A-101");
+check("WakeUp 带 BOM 仍能解析", WU.parseWakeUp("\uFEFF" + zhWu).errors, []);
+check("WakeUp 中文单双周", zhWuRes.model.courses.filter(c => c.name === "大学物理（单周）")[0].weeks,
+    [1, 3, 5, 7, 9, 11, 13, 15]);
+
+// ── 编码没对上要拦住，不能静默导入乱码 ──
+// GBK 文件被按 UTF-8 读时每个字节变成一个 U+0080–U+00FF 的字符。
+// 结构（BEGIN/END、属性名）都是 ASCII，所以照样解析得出来，只是内容全错 ——
+// 用户会拿到一份看起来正常、课名全错的课表，比直接失败糟得多。
+const mojibake = Buffer.from(zhIcs, "utf8").toString("latin1");
+ok("正常中文不误报", CM.looksMisDecoded(zhIcs) === false);
+ok("正常英文不误报", CM.looksMisDecoded("BEGIN:VCALENDAR\nSUMMARY:Math 101\nEND:VCALENDAR") === false);
+ok("少量重音字符不误报", CM.looksMisDecoded("SUMMARY:Müller Übung") === false);
+ok("空文本不误报", CM.looksMisDecoded("") === false);
+ok("GBK 误读能被识别", CM.looksMisDecoded(mojibake) === true);
+ok("含替换字符能被识别", CM.looksMisDecoded("SUMMARY:高等\uFFFD数学") === true);
+// 这条是重点：乱码文件确实「能解析成功」，所以必须靠前置检查拦住
+ok("乱码确实能解析出课程（故必须前置拦截）",
+    ICS.toModel(ICS.parseIcs(mojibake), CM, {}).model !== null);
 
 console.log("################ 结果 ################");
 if (fails.length === 0) {

@@ -39,12 +39,22 @@ function dayIndex(d) {
 // ── RFC 5545 §3.1 折行还原：换行后紧跟空格/TAB 的行属于上一行 ──
 function unfold(text) {
     var s = String(text || "");
+    s = s.replace(/^\uFEFF/, "");          // UTF-8 BOM（有些导出工具会加）
     s = s.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
     s = s.replace(/\n[ \t]/g, "");
     return s;
 }
 
-// ── 把 "NAME;PARAM=VALUE:value" 拆成三段。冒号要跳开引号内的部分 ──
+/*
+ * 把 "NAME;PARAM=VALUE:value" 拆成三段。冒号要跳开引号内的部分。
+ *
+ * 全角冒号（：）也当分隔符认。ICS 规范里只有半角冒号，但从网页或聊天记录里
+ * 复制课表时，中文输入法经常把 : 打成 ：，那一整份文件就全解析不出来了 ——
+ * 表现是「找不到任何课程日期」，让人完全摸不着头脑。
+ *
+ * 取的是**第一个**冒号，所以 DESCRIPTION:教师：张三 分割正确（后面的全角冒号
+ * 属于值的一部分，原样保留）。
+ */
 function splitLine(line) {
     var colon = -1;
     var inQuote = false;
@@ -52,7 +62,7 @@ function splitLine(line) {
         var c = line.charAt(i);
         if (c === '"') {
             inQuote = !inQuote;
-        } else if (c === ":" && !inQuote) {
+        } else if ((c === ":" || c === "：") && !inQuote) {
             colon = i;
             break;
         }

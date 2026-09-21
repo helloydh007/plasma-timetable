@@ -106,7 +106,8 @@ function timeOfMinutes(n) {
  */
 function extractBlocks(text) {
     var out = { timeTable: null, tableInfo: null, courseInfos: null, courseDetails: null };
-    var lines = String(text || "").split("\n");
+    // 开头的 UTF-8 BOM 会让第一行不是合法 JSON，先去掉
+    var lines = String(text || "").replace(/^\uFEFF/, "").split("\n");
     for (var i = 0; i < lines.length; i++) {
         var line = lines[i].replace(/\r$/, "").trim();
         if (!line || (line.charAt(0) !== "[" && line.charAt(0) !== "{")) {

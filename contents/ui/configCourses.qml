@@ -233,6 +233,15 @@ KCMUtils.SimpleKCM {
             page.importHadError = true;
             return;
         }
+        // 编码不对时必须拦住：解析器不会报错，只会导入一堆乱码课名
+        if (CM.looksMisDecoded(text)) {
+            page.importHadError = true;
+            page.importStatus = i18n(
+                "这份内容的中文部分已经是乱码了（例如「é«æ°å¦」这种），编码没对上，导入进来会得到一份课名全错的课表。\n\n"
+                + "教务系统导出的文件常常是 GBK / GB18030 编码。请用文本编辑器（Kate、VS Code 等）"
+                + "打开原文件，把编码切成 GBK 或 GB18030，确认中文显示正常之后再全选复制、粘贴到这里。");
+            return;
+        }
         var res;
         if (mode === "ics") {
             res = ICS.toModel(ICS.parseIcs(text), CM, {
