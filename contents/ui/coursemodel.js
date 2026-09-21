@@ -25,58 +25,7 @@ function emptyModel() {
     return { version: 1, termStart: "", totalWeeks: 20, periods: [], courses: [] };
 }
 
-/*
- * 调休上班日的上课安排，单独存一个配置键而不是塞进课表模型里。
- * 原因：调休日的**列表**来自节假日数据（holidays.js / 联网缓存），
- * 而课表模型的导入器不碰节假日；两者放在同一个配置键里，
- * 配置页就没法把它们拆给不同的页去编辑（两个页写同一个键会互相覆盖）。
- *
- * 键是 "yyyy-MM-dd"。返回 -1 = 未设置，按当天本身的星期几上课；
- * 0 = 这天不排课；1..7 = 按指定星期几的课表上课。
- */
-function workAsFor(map, isoDate) {
-    var m = map || {};
-    if (!Object.prototype.hasOwnProperty.call(m, isoDate)) {
-        return -1;
-    }
-    var v = Math.round(Number(m[isoDate]));
-    if (v === 0) {
-        return 0;
-    }
-    return (v >= 1 && v <= 7) ? v : -1;
-}
-
-function parseWorkAs(str) {
-    var out = {};
-    if (!str) {
-        return out;
-    }
-    var raw;
-    try {
-        raw = JSON.parse(String(str));
-    } catch (e) {
-        return out;
-    }
-    if (!raw || typeof raw !== "object") {
-        return out;
-    }
-    for (var k in raw) {
-        if (!Object.prototype.hasOwnProperty.call(raw, k)) {
-            continue;
-        }
-        var v = Math.round(Number(raw[k]));
-        if (parseIsoDate(k) && v >= 0 && v <= 7) {
-            out[k] = v;
-        }
-    }
-    return out;
-}
-
-function serializeWorkAs(map) {
-    return JSON.stringify(map || {});
-}
-
-// 周次文本 ←→ 数组。"1-16"、"1,3,5-9"、"1-16单" 这类写法都能认。
+// 周次文本 ←→ 数组。"1-16"、"1,3,5-7"、"1-16单" 这类写法都能认。
 function parseWeeksText(text) {
     var weeks = [];
     var errors = [];

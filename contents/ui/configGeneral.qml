@@ -1,15 +1,11 @@
 /*
  * 配置页：节假日
  *
- * 只管节假日本身：标记开关、数据来源与更新、以及**调休上班日按哪天的课表上课**。
+ * 三件事：节假日标记开关、数据来源与更新、数据覆盖情况。
  *
- * 为什么调休安排在这一页而不在课程页：
- * 调休日的清单来自节假日数据（内置表 + 联网缓存），只有这一页看得到；
- * 而它又不能和课表模型共用一个配置键 —— KCM 的每一页各自持有 cfg_ 属性的副本，
- * 两个页写同一个键会互相覆盖。所以它单独存成 workAsData。
- *
- * 国务院通知只说哪天补班，不说补哪天的课（那是各校自己定的），
- * 所以这里必须让用户逐个指定，默认按当天本身的星期几。
+ * 「休」日不排课；「班」日只在表头标出来提示，课表照常按当天本身的星期几显示 ——
+ * 调休到底补哪一天的课各校不同，不做猜测。课表本身的设置（开学日、作息时间表、
+ * 课程）都在课程页，因为那些字段和课程存在同一个配置键里（详见 configCourses.qml）。
  */
 
 import QtQuick
@@ -19,7 +15,6 @@ import QtQuick.Layouts
 import org.kde.kcmutils as KCMUtils
 import org.kde.kirigami as Kirigami
 
-import "coursemodel.js" as CM
 import "holidays.js" as Holidays
 import "holidays-update.js" as HolidaysNet
 
@@ -31,11 +26,9 @@ KCMUtils.SimpleKCM {
     property alias cfg_markHolidays: markSwitch.checked
     property alias cfg_holidayUpdateMode: modeHolder.text
     property alias cfg_holidayCache: cacheHolder.text
-    property alias cfg_workAsData: workAsHolder.text
 
     QQC2.TextField { id: modeHolder; visible: false; width: 0; height: 0 }
     QQC2.TextField { id: cacheHolder; visible: false; width: 0; height: 0 }
-    QQC2.TextField { id: workAsHolder; visible: false; width: 0; height: 0 }
 
     property bool alive: true
     Component.onDestruction: alive = false
@@ -44,8 +37,6 @@ KCMUtils.SimpleKCM {
     property string updateStatus: ""
     property bool updateHadError: false
 
-    readonly property var workAs: CM.parseWorkAs(workAsHolder.text)
-
     readonly property string coverageText: {
         const builtin = Holidays.COVERED_YEARS;
         const cached = Object.keys(HolidaysNet.parseCache(cacheHolder.text).years).sort();
@@ -53,46 +44,6 @@ KCMUtils.SimpleKCM {
             ? builtin[0] + "–" + builtin[builtin.length - 1] : i18n("无"));
         t += cached.length ? i18n("；联网获取：%1", cached.join("、")) : i18n("；联网获取：无");
         return t;
-    }
-
-    // 内置表 + 联网缓存里所有的补班日
-    function collectWorkDays() {
-        var out = [];
-        var seen = {};
-        function add(map) {
-            for (var k in (map || {})) {
-                if (Object.prototype.hasOwnProperty.call(map, k) && !seen[k]) {
-                    seen[k] = true;
-                    out.push({ date: k, name: map[k] });
-                }
-            }
-        }
-        add(Holidays.WORK);
-        const cache = HolidaysNet.parseCache(cacheHolder.text);
-        for (var y in cache.years) {
-            add((cache.years[y] || {}).work);
-        }
-        out.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
-        return out;
-    }
-
-    readonly property var workDays: collectWorkDays()
-
-    function setWorkAs(isoDate, value) {
-        var cur = CM.parseWorkAs(workAsHolder.text);
-        var m = {};
-        for (var k in cur) {
-            if (Object.prototype.hasOwnProperty.call(cur, k)) {
-                m[k] = cur[k];
-            }
-        }
-        if (value < 0) {
-            delete m[isoDate];      // -1 = 未设置，不写进配置，省得攒一堆无意义的条目
-        } else {
-            m[isoDate] = value;
-        }
-        workAsHolder.text = CM.serializeWorkAs(m);
-        page.configurationChanged();
     }
 
     function startUpdate() {
@@ -137,7 +88,9 @@ KCMUtils.SimpleKCM {
             Layout.maximumWidth: Kirigami.Units.gridUnit * 34
             wrapMode: Text.WordWrap
             opacity: 0.75
-            text: i18n("放假安排由国务院逐年发文规定（含调休），无法由历法推算，故使用数据表。")
+            text: i18n("放假安排由国务院逐年发文规定（含调休），无法由历法推算，故使用数据表。\n"
+                       + "「休」日不排课；「班」日只在表头标出来提示，课表仍按当天本身的星期几显示 —— "
+                       + "调休补哪一天的课各校不同，不做猜测。")
         }
 
         QQC2.ComboBox {
@@ -189,73 +142,6 @@ KCMUtils.SimpleKCM {
             color: page.updateHadError ? Kirigami.Theme.negativeTextColor
                  : (text.indexOf("✓") >= 0 ? Kirigami.Theme.positiveTextColor
                                            : Kirigami.Theme.textColor)
-        }
-
-        Kirigami.Separator {
-            Layout.fillWidth: true
-            Kirigami.FormData.isSection: true
-            Kirigami.FormData.label: i18n("调休日上课安排")
-        }
-
-        QQC2.Label {
-            Layout.maximumWidth: Kirigami.Units.gridUnit * 36
-            wrapMode: Text.WordWrap
-            opacity: 0.75
-            visible: page.workDays.length > 0
-            text: i18n("国家只规定哪天补班，不规定补哪天的课，各校不同，所以需要你指定。"
-                       + "默认按当天本身的星期几上课。")
-        }
-
-        QQC2.Label {
-            Layout.maximumWidth: Kirigami.Units.gridUnit * 36
-            wrapMode: Text.WordWrap
-            opacity: 0.75
-            visible: page.workDays.length === 0
-            text: i18n("当前数据里没有调休上班日。")
-        }
-
-        Repeater {
-            model: page.workDays
-
-            delegate: RowLayout {
-                id: workRow
-                required property var modelData
-
-                Kirigami.FormData.label: modelData.date
-
-                QQC2.Label {
-                    text: i18n("补 %1 的班", workRow.modelData.name)
-                    opacity: 0.7
-                }
-
-                QQC2.ComboBox {
-                    textRole: "text"
-                    model: {
-                        var m = [
-                            { text: i18n("按当天（%1）",
-                              CM.weekdayLabel(CM.weekdayOf(CM.parseIsoDate(workRow.modelData.date)))), value: -1 },
-                            { text: i18n("不排课"), value: 0 }
-                        ];
-                        for (var i = 1; i <= 7; i++) {
-                            m.push({ text: i18n("按周%1的课表", CM.weekdayNames()[i - 1]), value: i });
-                        }
-                        return m;
-                    }
-                    currentIndex: {
-                        var cur = Object.prototype.hasOwnProperty.call(page.workAs, workRow.modelData.date)
-                            ? page.workAs[workRow.modelData.date] : -1;
-                        for (var i = 0; i < model.length; i++) {
-                            if (model[i].value === cur) {
-                                return i;
-                            }
-                        }
-                        return 0;
-                    }
-                    onActivated: function (index) {
-                        page.setWorkAs(workRow.modelData.date, model[index].value);
-                    }
-                }
-            }
         }
     }
 }

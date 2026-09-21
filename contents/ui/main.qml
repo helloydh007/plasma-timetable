@@ -34,8 +34,6 @@ PlasmoidItem {
 
     readonly property var timetable: CM.parseModel(Plasmoid.configuration.timetableData)
     property var holidayCache: HolidaysNet.parseCache(Plasmoid.configuration.holidayCache)
-    // 调休日的上课安排单独一个配置键（见 configGeneral.qml 的说明）
-    readonly property var workAsMap: CM.parseWorkAs(Plasmoid.configuration.workAsData)
 
     readonly property bool holidaysOn: Plasmoid.configuration.markHolidays
     readonly property bool hasCourses: (timetable.courses || []).length > 0
@@ -109,33 +107,24 @@ PlasmoidItem {
     }
 
     /*
-     * 某周的星期几到底上哪一天的课。
-     *   休 → off，当天没课
-     *   班 → 按 workAs 指定的星期几上；用户没指定就按当天本身的星期几
-     * （国务院通知只说哪天补班，不说补哪天的课 —— 那是各校自己定的，只能让用户填。）
+     * 某天的节假日状态。
+     *   休 → off，当天不排课
+     *   班 → status 是 { type: "work" }，只在表头标出来提示，课表照常按当天星期几显示
      */
     function resolveDay(week, weekday) {
         var date = CM.dateOf(timetable, week, weekday);
         if (!date || !holidaysOn) {
-            return { weekday: weekday, off: false, status: null, date: date };
+            return { off: false, status: null, date: date };
         }
         var st = holidayStatus(date);
         if (st && st.type === "off") {
-            return { weekday: weekday, off: true, status: st, date: date };
+            return { off: true, status: st, date: date };
         }
-        if (st && st.type === "work") {
-            var as = CM.workAsFor(workAsMap, CM.isoOf(date));
-            if (as === 0) {
-                return { weekday: weekday, off: true, status: st, date: date };
-            }
-            return { weekday: as > 0 ? as : weekday, off: false, status: st, date: date };
-        }
-        return { weekday: weekday, off: false, status: null, date: date };
+        return { off: false, status: st, date: date };
     }
 
     function coursesAt(week, weekday) {
-        var r = resolveDay(week, weekday);
-        return r.off ? [] : CM.coursesOn(timetable, week, r.weekday);
+        return resolveDay(week, weekday).off ? [] : CM.coursesOn(timetable, week, weekday);
     }
 
     // 当前显示的这一周里、所有要画出来的课程块

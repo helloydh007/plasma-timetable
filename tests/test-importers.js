@@ -27,7 +27,7 @@ const CM = loadQmlJs(path.join(UI, "coursemodel.js"), [
     "rowCount", "rowOfNode", "periodAt", "periodsFromIntervals",
     "mapTimeToPeriods", "mapEvent", "colorFor", "normalizeCourse", "mergeSlots",
     "assignColors", "coursesOn", "coursesInWeek", "courseNames",
-    "workAsFor", "parseWorkAs", "serializeWorkAs", "parseWeeksText", "weeksToText", "periodByNode", "textColorFor"
+    "parseWeeksText", "weeksToText", "periodByNode", "textColorFor"
 ]);
 const ICS = loadQmlJs(path.join(UI, "ics.js"), [
     "unfold", "parseIcs", "teacherFromDescription", "minutesOf", "toSessions", "toModel"
@@ -228,17 +228,6 @@ check("14:00-15:40 落到 5-6 节", (() => {
     const c = wp.courses.filter(x => x.name === "大学英语（读写译）")[0];
     return [c.startPeriod, c.endPeriod];
 })(), [5, 6]);
-
-// 调休日「按哪天的课表上课」：单独一个配置键，读写要能往返
-check("调休表往返", CM.parseWorkAs(CM.serializeWorkAs({ "2026-10-10": 5, "2026-09-20": 0 })),
-    { "2026-10-10": 5, "2026-09-20": 0 });
-check("调休表：未设置返回 -1", CM.workAsFor({}, "2026-10-10"), -1);
-check("调休表：不排课返回 0", CM.workAsFor({ "2026-10-10": 0 }, "2026-10-10"), 0);
-check("调休表：按周五返回 5", CM.workAsFor({ "2026-10-10": 5 }, "2026-10-10"), 5);
-check("调休表：越界值当未设置", CM.workAsFor({ "2026-10-10": 99 }, "2026-10-10"), -1);
-check("调休表：坏 JSON 退回空", CM.serializeWorkAs(CM.parseWorkAs("{{坏")), "{}");
-check("调休表：坏日期键被丢弃", CM.serializeWorkAs(CM.parseWorkAs('{"不是日期":3,"2026-10-10":3}')),
-    '{"2026-10-10":3}');
 
 console.log("################ 结果 ################");
 if (fails.length === 0) {

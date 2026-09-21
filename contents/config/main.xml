@@ -6,21 +6,14 @@
   <kcfgfile name=""/>
 
   <group name="General">
-    <!-- 课表模型（JSON）：开学日、作息时间表、课程、调休日覆盖表。
+    <!-- 课表模型（JSON）：开学日、作息时间表、课程。
          用单个 JSON 字符串而不是嵌套组：KConfig XT 无法表达数组结构。 -->
     <entry name="timetableData" type="String">
       <default></default>
     </entry>
-    <!-- 是否用法定节假日数据覆盖课表：休日不排课，调休日按指定星期几排课 -->
+    <!-- 是否用法定节假日数据覆盖课表：休日不排课 -->
     <entry name="markHolidays" type="Bool">
       <default>true</default>
-    </entry>
-    <!-- 调休上班日的上课安排（JSON：{"yyyy-MM-dd": 星期几}；0 = 不排课）。
-         与 timetableData 分开存：调休日的清单来自节假日数据，
-         而节假日那一页和课表那一页各自持有 cfg_ 属性的副本，
-         两个页写同一个键会互相覆盖。 -->
-    <entry name="workAsData" type="String">
-      <default></default>
     </entry>
     <!-- 节假日数据更新方式：manual（手动，默认）| auto（自动，每 30 天检查一次） -->
     <entry name="holidayUpdateMode" type="String">
