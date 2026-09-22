@@ -27,18 +27,21 @@ Rectangle {
     property string badge: ""
     // 高度够不够放下第二行（地点 · 教师）——由容器按可用高度决定，不是这里自己量
     property bool showMeta: false
+    // 卡面底色不透明度（0..1）。0 = 只剩文字和色条（文字不跟着淡，不然读不清）。
+    property real cardOpacity: 1.0
 
     readonly property color fg: row.current
         ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
     readonly property int pad: Kirigami.Units.smallSpacing
     readonly property string meta: CM.metaText(row.entry)
+    readonly property real alpha: Math.max(0, Math.min(1, row.cardOpacity))
+    readonly property color surface: row.current
+        ? Kirigami.Theme.highlightColor : Kirigami.Theme.alternateBackgroundColor
 
     radius: 8
-    color: row.current
-        ? Kirigami.Theme.highlightColor
-        : Kirigami.Theme.alternateBackgroundColor
+    color: Qt.rgba(row.surface.r, row.surface.g, row.surface.b, row.alpha)
     border.width: 1
-    border.color: Qt.rgba(row.fg.r, row.fg.g, row.fg.b, 0.15)
+    border.color: Qt.rgba(row.fg.r, row.fg.g, row.fg.b, 0.15 * row.alpha)
 
     implicitHeight: line.implicitHeight + row.pad * 2
 

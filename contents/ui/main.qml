@@ -67,6 +67,16 @@ PlasmoidItem {
         return "card";
     }
 
+    // 课程卡片底色的不透明度（0..1）。
+    // 注意这里不能用 `Number(x) || 100`：0 是合法取值，会被 || 吞掉。
+    readonly property real cardOpacity: {
+        var v = Number(Plasmoid.configuration.cardOpacity);
+        if (!isFinite(v)) {
+            v = 100;
+        }
+        return Math.max(0, Math.min(100, Math.round(v))) / 100;
+    }
+
 
     // ══════════════════ 数据 ══════════════════
 
@@ -596,6 +606,7 @@ PlasmoidItem {
                 header: root.todayView.header
                 subheader: root.todayView.subheader
                 cardLayout: root.cardLayout
+                cardOpacity: root.cardOpacity
                 now: root.today
                 emptyText: root.listEmptyText
             }
@@ -606,6 +617,7 @@ PlasmoidItem {
             StyleUpcoming {
                 cards: root.upcomingList
                 cardLayout: root.cardLayout
+                cardOpacity: root.cardOpacity
                 now: root.today
                 emptyText: root.listEmptyText
             }
@@ -617,6 +629,7 @@ PlasmoidItem {
                 card: root.nextCard
                 countdown: root.nextCountdown
                 active: root.nextActive
+                cardOpacity: root.cardOpacity
                 emptyText: root.listEmptyText
             }
         }

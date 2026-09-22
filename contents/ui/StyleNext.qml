@@ -21,6 +21,8 @@ Item {
     property var card: null
     property string countdown: ""
     property bool active: false        // true = 正在上，false = 还没开始
+    // 卡面底色不透明度（0..1）。文字不跟着淡，不然会读不清。
+    property real cardOpacity: 1.0
     // 学期结束 / 未开学 / 放假时的一句话
     property string emptyText: ""
 
@@ -54,8 +56,11 @@ Item {
             Layout.fillHeight: true
             visible: view.card !== null
             radius: 6
-            color: view.card && view.card.color
+            // 底色带 alpha（不是 Item.opacity）：文字保持不透明才读得清
+            readonly property color surface: view.card && view.card.color
                 ? view.card.color : Kirigami.Theme.highlightColor
+            color: Qt.rgba(surface.r, surface.g, surface.b,
+                           Math.max(0, Math.min(1, view.cardOpacity)))
 
             readonly property color fg:
                 view.card ? CM.textColorFor(view.card.color) : Kirigami.Theme.textColor

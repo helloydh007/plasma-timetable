@@ -41,6 +41,11 @@
     <entry name="backgroundOpacity" type="Int">
       <default>100</default>
     </entry>
+    <!-- 课程卡片底色的不透明度（0-100）。0 = 卡片底色完全透明，
+         只剩文字和左侧色条（文字始终不透明，不然会读不清）。 -->
+    <entry name="cardOpacity" type="Int">
+      <default>100</default>
+    </entry>
     <!-- 「今日课程」回退时、以及「接下来」样式里显示多少门课。 -->
     <entry name="upcomingCount" type="Int">
       <default>3</default>

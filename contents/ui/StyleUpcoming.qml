@@ -21,6 +21,8 @@ Item {
     property date now: new Date()
     // 卡片布局：card / compact / timeline（外观页可切）
     property string cardLayout: "card"
+    // 卡面底色不透明度，0..1（外观页可调）
+    property real cardOpacity: 1.0
     property string emptyText: ""
 
     ColumnLayout {
@@ -55,6 +57,7 @@ Item {
             visible: view.cards.length > 0
             cards: view.cards
             layout: view.cardLayout
+            cardOpacity: view.cardOpacity
             now: view.now
         }
     }

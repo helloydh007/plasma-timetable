@@ -31,17 +31,22 @@ Item {
     property bool isLast: false
     // 列表的行距 —— 竖线要靠它跨过间隙接上下一行
     property real rowGap: Kirigami.Units.smallSpacing
+    // 版面装饰的不透明度（0..1）。导轨和面板（在 CardList 里）跟着淡；
+    // 圆点是「哪门课」的标记，和卡片布局左侧那条色条一样，始终不淡。
+    property real cardOpacity: 1.0
 
     readonly property color fg: row.current
         ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
     readonly property int pad: Kirigami.Units.smallSpacing
     readonly property string meta: CM.metaText(row.entry)
+    readonly property real alpha: Math.max(0, Math.min(1, row.cardOpacity))
 
     readonly property real dotSize: Math.max(6, Math.round(Kirigami.Units.gridUnit * 0.45))
     readonly property real dotTop: row.pad
     // 圆点中心离行顶的距离 —— 也是「上一行的竖线该画到哪」
     readonly property real dotMiddle: row.dotTop + row.dotSize / 2
-    readonly property color railColor: Qt.rgba(row.fg.r, row.fg.g, row.fg.b, 0.12)
+    readonly property color railColor:
+        Qt.rgba(row.fg.r, row.fg.g, row.fg.b, 0.12 * row.alpha)
 
     // 行之间留多少空由列表的 spacing 给，行内不再自己加一份 ——
     // 两边都加的话间距会翻倍，还会凭空多出一条滚动条

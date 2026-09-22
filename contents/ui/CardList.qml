@@ -29,6 +29,10 @@ Item {
     property date now: new Date()
     property string layout: "card"
     property real maxCardHeight: Kirigami.Units.gridUnit * 3.4
+    // 卡面（以及时间轴那块面板）的底色不透明度，0..1
+    property real cardOpacity: 1.0
+
+    readonly property real alpha: Math.max(0, Math.min(1, view.cardOpacity))
 
     readonly property bool compact: view.layout === "compact"
     readonly property bool timeline: view.layout === "timeline"
@@ -70,11 +74,12 @@ Item {
     Rectangle {
         visible: view.timeline
         anchors.fill: parent
-        color: Kirigami.Theme.alternateBackgroundColor
+        readonly property color surface: Kirigami.Theme.alternateBackgroundColor
+        color: Qt.rgba(surface.r, surface.g, surface.b, view.alpha)
         radius: 8
         border.width: 1
         border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g,
-                              Kirigami.Theme.textColor.b, 0.15)
+                              Kirigami.Theme.textColor.b, 0.15 * view.alpha)
     }
 
     Flickable {
@@ -113,6 +118,7 @@ Item {
                     dayText: modelData.dayText || ""
                     badge: view.isCurrent(modelData) ? "上课中" : ""
                     current: view.isCurrent(modelData)
+                    cardOpacity: view.alpha
                 }
             }
 
@@ -132,6 +138,7 @@ Item {
                     badge: view.isCurrent(modelData) ? "上课中" : ""
                     current: view.isCurrent(modelData)
                     showMeta: view.roomForMeta
+                    cardOpacity: view.alpha
                 }
             }
 
@@ -155,6 +162,8 @@ Item {
                     isLast: index === view.cards.length - 1
                     // 行距要让导轨知道：竖线要跨过它，才和下一行接得上
                     rowGap: view.rowGap
+                    // 时间轴的行没有卡面，只有圆点和导轨 —— 让它们跟着一起淡
+                    cardOpacity: view.alpha
                 }
             }
         }

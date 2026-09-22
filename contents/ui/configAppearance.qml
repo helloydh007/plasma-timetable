@@ -19,6 +19,7 @@ KCMUtils.SimpleKCM {
 
     property alias cfg_viewStyle: styleHolder.text
     property alias cfg_backgroundOpacity: opacitySlider.value
+    property alias cfg_cardOpacity: cardOpacitySlider.value
     property alias cfg_upcomingCount: countSpin.value
     property alias cfg_cardLayout: layoutHolder.text
 
@@ -162,11 +163,11 @@ KCMUtils.SimpleKCM {
         Kirigami.Separator {
             Layout.fillWidth: true
             Kirigami.FormData.isSection: true
-            Kirigami.FormData.label: i18n("背景")
+            Kirigami.FormData.label: i18n("背景与卡片")
         }
 
         RowLayout {
-            Kirigami.FormData.label: i18n("不透明度：")
+            Kirigami.FormData.label: i18n("背景不透明度：")
 
             QQC2.Slider {
                 id: opacitySlider
@@ -187,7 +188,36 @@ KCMUtils.SimpleKCM {
             Layout.maximumWidth: Kirigami.Units.gridUnit * 34
             wrapMode: Text.WordWrap
             opacity: 0.75
-            text: i18n("调到 0 就只剩内容浮在桌面上，完全没有背景板。")
+            text: i18n("组件底板的透明度。调到 0 就只剩内容浮在桌面上，完全没有背景板。")
+        }
+
+        RowLayout {
+            Kirigami.FormData.label: i18n("卡片不透明度：")
+
+            QQC2.Slider {
+                id: cardOpacitySlider
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 16
+                enabled: styleHolder.text === "today" || styleHolder.text === "upcoming"
+                                         || styleHolder.text === "next"
+                from: 0
+                to: 100
+                stepSize: 5
+                snapMode: QQC2.Slider.SnapAlways
+                onMoved: page.configurationChanged()
+            }
+            QQC2.Label {
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 3
+                text: Math.round(cardOpacitySlider.value) + "%"
+            }
+        }
+
+        QQC2.Label {
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 34
+            wrapMode: Text.WordWrap
+            opacity: 0.75
+            text: i18n("课程卡片底色的透明度。调到 0 就只剩文字和左边那条课程色条，"
+                       + "卡片本身看不见了。\n"
+                       + "文字和色条始终不透明 —— 跟着一起淡的话课程名会糊在壁纸上读不清。")
         }
 
         QQC2.Label {
@@ -195,7 +225,11 @@ KCMUtils.SimpleKCM {
             wrapMode: Text.WordWrap
             opacity: 0.6
             font.pointSize: Math.max(6, Kirigami.Theme.smallFont.pointSize)
-            text: i18n("背景由组件自己绘制，所以这里的不透明度是准的；"
+            text: i18n("两者相互独立：可以把底板留实、卡片调透（更像贴在桌面上的一列字），"
+                       + "也可以反过来。\n"
+                       + "周网格不受卡片不透明度影响 —— 那里的课块本身就是色块，"
+                       + "调透就没法看了。\n"
+                       + "背景由组件自己绘制，所以这里的不透明度是准的；"
                        + "组件右键菜单里 Plasma 那个「背景」开关不再起作用。")
         }
     }

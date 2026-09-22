@@ -27,19 +27,24 @@ Rectangle {
     property string dayText: ""
     // 卡片上的小标记（「上课中」），空串不占位置
     property string badge: ""
+    // 卡面底色不透明度（0..1）。0 = 只剩文字和色条。
+    // 注意是**底色带 alpha**，不是 Item.opacity —— 后者会把文字一起冲淡，读不清。
+    property real cardOpacity: 1.0
 
     readonly property color fg: card.current
         ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
     readonly property int pad: Kirigami.Units.smallSpacing
+    readonly property real alpha: Math.max(0, Math.min(1, card.cardOpacity))
+    readonly property color surface: card.current
+        ? Kirigami.Theme.highlightColor : Kirigami.Theme.alternateBackgroundColor
 
     // 圆角 + 实色卡面 + 细描边，三样凑齐才像一张卡片；
     // 只铺一层淡色的话看上去就是一条横带。
     radius: 8
-    color: card.current
-        ? Kirigami.Theme.highlightColor
-        : Kirigami.Theme.alternateBackgroundColor
+    color: Qt.rgba(card.surface.r, card.surface.g, card.surface.b, card.alpha)
     border.width: 1
-    border.color: Qt.rgba(card.fg.r, card.fg.g, card.fg.b, 0.15)
+    // 描边跟着一起淡，不然 0% 的时候只剩一圈线框着空气
+    border.color: Qt.rgba(card.fg.r, card.fg.g, card.fg.b, 0.15 * card.alpha)
 
     // 高度跟着内容走：列表按这个算，空间富余时再由 Layout.preferredHeight 放大
     implicitHeight: row.implicitHeight + card.pad * 2

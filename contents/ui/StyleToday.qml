@@ -25,6 +25,8 @@ Item {
     property date now: new Date()
     // 卡片布局：card / compact / timeline（外观页可切）
     property string cardLayout: "card"
+    // 卡面底色不透明度，0..1（外观页可调）
+    property real cardOpacity: 1.0
     // 学期结束 / 尚未开学 / 放假时由外部给一句说明，覆盖默认的「今天没课」
     property string emptyText: ""
 
@@ -86,6 +88,7 @@ Item {
             visible: view.cards.length > 0
             cards: view.cards
             layout: view.cardLayout
+            cardOpacity: view.cardOpacity
             now: view.now
         }
     }
