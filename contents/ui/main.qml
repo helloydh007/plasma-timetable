@@ -284,8 +284,8 @@ PlasmoidItem {
                 }
                 // 逐字段抄出来，不用 for-in 反射 —— QML 把对象转成 QVariantMap 之后，
                 // hasOwnProperty 那类判断会静默失效（这个坑踩过一次）。
-                // tagCards 顺手把 sameDay / dayLabel 补齐，样式组件不用猜字段在不在。
-                out.push(CM.tagCards([c], step === 0, CM.dayLabel(base, d))[0]);
+                // tagCards 顺手把 sameDay / dayLabel / 日期补齐，样式组件不用猜字段在不在。
+                out.push(CM.tagCards([c], base, d)[0]);
                 if (out.length >= limit) {
                     break;
                 }
@@ -296,9 +296,11 @@ PlasmoidItem {
 
     /*
      * 「今日课程」的数据。
-     * 今天还有没上的课就显示今天的；今天的都上完了就退而显示最近的三门
+     * 今天还有没上的课就平铺今天的；今天的都上完了就退而显示最近的三门
      * （不一定是明天 —— 明天可能也没课），一天课上完之后恰恰是最想知道
-     * 「接下来还有什么」的时候，这时候把面板空掉反而不合适。
+     * 「接下来还有什么」的时候，这时候把组件空掉反而不合适。
+     * 往后这几节都带日期（「明天」「下周三 9/30」），同一门课的相邻两次
+     * 不会再看混。
      *
      * 到了那天会自动变成当天的课表：这里依赖 today，而 today 每分钟刷新，
      * 所以跨天后 dayCards(today) 自然就非空了。
@@ -308,16 +310,22 @@ PlasmoidItem {
         var remaining = CM.remainingCards(dayCards(today), nowMin);
         if (remaining.length > 0) {
             return {
-                cards: CM.tagCards(remaining, true, ""),
+                mode: "today",
+                cards: CM.tagCards(remaining, today, today),
                 header: CM.dayTitle(today),
-                fallback: false
+                subheader: ""
             };
         }
         var next = upcomingCards(upcomingCount);
         if (next.length > 0) {
-            return { cards: next, header: "今天没有课了", fallback: true };
+            return {
+                mode: "future",
+                cards: next,
+                header: "今天没有课了",
+                subheader: "接下来的课"
+            };
         }
-        return { cards: [], header: CM.dayTitle(today), fallback: false };
+        return { mode: "empty", cards: [], header: CM.dayTitle(today), subheader: "" };
     }
 
     readonly property var upcomingList: upcomingCards(upcomingCount)
@@ -348,7 +356,10 @@ PlasmoidItem {
             mins = c.startMinutes - m;
             tail = "后开始";
         } else {
-            return c.dayLabel + " " + c.start + " 开始";
+            // 跨天的课带上日期：「下周三」和「周三」只差一个「下」字，
+            // 光看星期几分不清是这周的课还是下周的
+            var when = (c.sameDay ? "今天" : c.dayLabel) + " " + c.dateText;
+            return c.start !== "" ? when + " " + c.start + " 开始" : when + " 有课";
         }
         var txt = mins >= 60
             ? (Math.floor(mins / 60) + " 小时 " + (mins % 60) + " 分")
@@ -414,8 +425,11 @@ PlasmoidItem {
         if (termEnded) {
             return { label: "本学期已结束", detail: "", active: false };
         }
+        // 面板回答的是「现在上什么」，所以永远按今天所在的那一周算，不跟
+        // 桌面上的「第 N 周」浏览状态走 —— 翻到别的周时会把那周的同一时段
+        // 的课报成「正在上」，那是假的
         var wd = CM.weekdayOf(today);
-        var list = coursesAt(shownWeekNumber, wd);
+        var list = coursesAt(defaultWeek, wd);
         var nowMin = today.getHours() * 60 + today.getMinutes();
         var i;
 
@@ -449,9 +463,20 @@ PlasmoidItem {
                 };
             }
         }
-        var r = resolveDay(shownWeekNumber, wd);
+        var r = resolveDay(defaultWeek, wd);
         if (r.status && r.status.type === "off") {
             return { label: "放假", detail: r.status.name, active: false };
+        }
+        // 今天没课了就把往后最近的一节报出来 —— 桌面上的列表就是这么做的，
+        // 面板只说一句「今天没课了」会让两边对不上，看着像有一个坏了
+        var up = upcomingCards(1);
+        if (up.length > 0) {
+            var n = up[0];
+            return {
+                label: n.name,
+                detail: (n.sameDay ? "今天" : n.dayLabel) + " " + n.start,
+                active: false
+            };
         }
         return { label: "今天没课了", detail: "", active: false };
     }
@@ -535,9 +560,10 @@ PlasmoidItem {
         // 列表类样式。「周网格」内联在下面（它和工具条、网格共用一套状态，
         // 拆出去反而要来回传一堆函数）。
         // 留白比周网格大一档：卡片是独立的一块块，贴着组件边框会显得憋。
+        // 主题给的 largeSpacing 只有 8（units 是随字号缩的），再放大一半。
         Loader {
             anchors.fill: parent
-            anchors.margins: Kirigami.Units.largeSpacing
+            anchors.margins: Kirigami.Units.largeSpacing * 1.5
             active: root.viewStyle !== "week"
             visible: active
             sourceComponent: {
@@ -556,8 +582,10 @@ PlasmoidItem {
         Component {
             id: styleTodayComponent
             StyleToday {
+                mode: root.todayView.mode
                 cards: root.todayView.cards
                 header: root.todayView.header
+                subheader: root.todayView.subheader
                 now: root.today
                 emptyText: root.listEmptyText
             }

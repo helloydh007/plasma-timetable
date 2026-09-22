@@ -30,9 +30,10 @@ Item {
 
         PlasmaComponents.Label {
             Layout.fillWidth: true
-            text: view.active ? "正在上" : "下一节"
+            text: view.active ? "正在上课" : "下一节"
             font.bold: true
-            opacity: 0.8
+            font.pointSize: Kirigami.Theme.defaultFont.pointSize + 2
+            opacity: 0.85
             visible: view.card !== null
         }
 
@@ -43,6 +44,7 @@ Item {
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             wrapMode: Text.Wrap
+            font.pointSize: Kirigami.Theme.defaultFont.pointSize + 1
             opacity: 0.6
             text: view.emptyText !== "" ? view.emptyText : "没有课了"
         }
@@ -108,6 +110,8 @@ Item {
                     text: view.countdown
                     color: parent.parent.fg
                     font.bold: true
+                    // 倒计时是这个样式里唯一会变的数字，比正文大一点才像「一眼可见」
+                    font.pointSize: Kirigami.Theme.defaultFont.pointSize + 2
                     elide: Text.ElideRight
                 }
             }

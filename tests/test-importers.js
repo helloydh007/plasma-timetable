@@ -29,7 +29,8 @@ const CM = loadQmlJs(path.join(UI, "coursemodel.js"), [
     "assignColors", "coursesOn", "coursesInWeek", "courseNames",
     "parseWeeksText", "weeksToText", "periodByNode", "textColorFor",
     "parityOf", "applyParity", "normalizeSpan", "weeksDisplay", "isArrayLike", "slotsOn", "dimColor",
-    "cardsForDay", "dayLabel", "remainingCards", "dayTitle", "tagCards", "looksMisDecoded", "clockSkewSec", "clockOffsetToStore", "applyClockOffset"
+    "cardsForDay", "dayLabel", "dayText", "remainingCards", "dayTitle", "tagCards", "looksMisDecoded", "clockSkewSec", "clockOffsetToStore", "applyClockOffset",
+    "dateText", "cleanText"
 ]);
 const ICS = loadQmlJs(path.join(UI, "ics.js"), [
     "splitLine", "unescapeText", "parseDateValue", "expandWeekly",
@@ -543,8 +544,36 @@ const d0 = new Date(2026, 8, 21);
 check("今天", CM.dayLabel(d0, new Date(2026, 8, 21)), "今天");
 check("明天", CM.dayLabel(d0, new Date(2026, 8, 22)), "明天");
 check("后天", CM.dayLabel(d0, new Date(2026, 8, 23)), "后天");
-check("再往后用星期", CM.dayLabel(d0, new Date(2026, 8, 24)), "周四");
-check("跨月也对", CM.dayLabel(d0, new Date(2026, 9, 1)), "周四");
+check("一周以内用星期", CM.dayLabel(d0, new Date(2026, 8, 24)), "周四");
+// 关键回归：跨到下一周必须带「下」字。
+// 只写「周三」的话，本周三和下周三的同一门课会变成两张一模一样的卡，
+// 用户报过这个「重复显示」。
+check("下周一", CM.dayLabel(d0, new Date(2026, 8, 28)), "下周一");
+check("下周中的同一天（隔 8 天）", CM.dayLabel(d0, new Date(2026, 8, 29)), "下周二");
+check("下下周一", CM.dayLabel(d0, new Date(2026, 9, 5)), "下下周一");
+check("跨月也对", CM.dayLabel(d0, new Date(2026, 9, 1)), "下周四");
+
+// 卡片上那行日期：「明天/后天」本身确定，不再写日子；再往后一律带日期。
+// 这正是「同一门课显示了两遍」那个 bug 的修复点 —— 本周三和下周三的卡片
+// 名称时间完全一样，唯一的区别就是这行字。
+check("当天不带日期", CM.dayText(d0, new Date(2026, 8, 21)), "");
+check("明天不带日期", CM.dayText(d0, new Date(2026, 8, 22)), "明天");
+check("后天不带日期", CM.dayText(d0, new Date(2026, 8, 23)), "后天");
+check("一周内带日期", CM.dayText(d0, new Date(2026, 8, 24)), "周四 9/24");
+check("下周同一星期几带「下」和日期", CM.dayText(d0, new Date(2026, 8, 29)), "下周二 9/29");
+check("下下周三", CM.dayText(d0, new Date(2026, 9, 7)), "下下周三 10/7");
+// 回归：同一门课的两节，卡片上的日期必须不一样
+check("相邻两周的同一门课日期不同",
+    CM.dayText(d0, new Date(2026, 8, 23)) !== CM.dayText(d0, new Date(2026, 8, 30)), true);
+
+// 日期文本
+check("日期文本", CM.dateText(new Date(2026, 8, 23)), "9月23日");
+check("日期文本不带前导零", CM.dateText(new Date(2026, 9, 1)), "10月1日");
+
+// 空白清理：教务系统粘出来的地点常常是个空格
+check("清理空白", CM.cleanText(" "), "");
+check("左右去空白", CM.cleanText("  A2-206  "), "A2-206");
+check("null 安全", CM.cleanText(null), "");
 
 // ── 「今日课程」：已上完的要滤掉，全上完则退而显示最近的一节 ──
 const todayCardsFixture = [
@@ -571,29 +600,54 @@ check("今日标题", CM.dayTitle(new Date(2026, 8, 22)), "今天 · 9月22日 �
 check("周日标题", CM.dayTitle(new Date(2026, 8, 27)), "今天 · 9月27日 周日");
 
 // ── tagCards：两种来源的字段要统一，样式组件才不用猜 ──
+const dayA = new Date(2026, 8, 22);      // 周二
+const dayB = new Date(2026, 8, 23);      // 周三
 const tagged = CM.tagCards([{ name: "A", room: "R", teacher: "T", color: "#111111",
                               start: "08:00", end: "09:40", time: "08:00–09:40",
-                              startMinutes: 480, endMinutes: 580, 杂项: 1 }], true, "");
+                              startMinutes: 480, endMinutes: 580, 杂项: 1 }], dayA, dayA);
 check("补齐 sameDay", tagged[0].sameDay, true);
-check("补齐 dayLabel", tagged[0].dayLabel, "");
+check("当天不写相对日期词", tagged[0].dayLabel, "");
+check("当天卡片上没有日期", tagged[0].dayText, "");
+check("当天也带日期文本", tagged[0].dateText, "9月22日");
 check("业务字段都带过来了",
     [tagged[0].name, tagged[0].room, tagged[0].teacher, tagged[0].color,
      tagged[0].time, tagged[0].startMinutes, tagged[0].endMinutes],
     ["A", "R", "T", "#111111", "08:00–09:40", 480, 580]);
 check("只保留需要的字段", Object.keys(tagged[0]).sort(),
-    ["color", "dayLabel", "end", "endMinutes", "name", "room", "sameDay",
-     "start", "startMinutes", "teacher", "time"]);
-check("sameDay 缺省为 false",
-    CM.tagCards([{ name: "B" }], undefined, "明天")[0].sameDay, false);
-check("dayLabel 缺省为空串", CM.tagCards([{ name: "B" }], false, null)[0].dayLabel, "");
-check("空列表", CM.tagCards([], true, ""), []);
+    ["color", "dateText", "dayLabel", "dayText", "end", "endMinutes", "name",
+     "room", "sameDay", "start", "startMinutes", "teacher", "time"]);
+const taggedFuture = CM.tagCards([{ name: "B" }], dayA, dayB);
+check("跨天时 sameDay 为 false", taggedFuture[0].sameDay, false);
+check("跨天时给出相对日期词", taggedFuture[0].dayLabel, "明天");
+check("跨天时卡片上有日期", taggedFuture[0].dayText, "明天");
+check("隔周的卡片日期带日子", CM.tagCards([{ name: "C" }], dayA, new Date(2026, 8, 30))[0].dayText,
+    "下周三 9/30");
+check("空列表", CM.tagCards([], dayA, dayA), []);
+
+// ── 真实课表的回归：同一门课在两周里各上一次，卡片上的日期必须能区分 ──
+const twoWeeks = CM.parseModel(JSON.stringify({
+    termStart: "2026-09-01", totalWeeks: 20,
+    periods: [{ node: 1, start: "08:00", end: "08:45" },
+              { node: 2, start: "14:00", end: "14:45" }],
+    courses: [
+        { name: "光电子学", weekday: 3, startPeriod: 2, endPeriod: 2, weeks: [1,2,3,4,5,6] },
+        { name: "新课程", weekday: 2, startPeriod: 1, endPeriod: 1, weeks: [2,4,6] }
+    ]
+}));
+const base = new Date(2026, 8, 22);       // 第 4 周周二
+const thisWed = CM.tagCards(CM.cardsForDay(twoWeeks, 4, 3), base, new Date(2026, 8, 23))[0];
+const nextWed = CM.tagCards(CM.cardsForDay(twoWeeks, 5, 3), base, new Date(2026, 8, 30))[0];
+check("两周各上一次：课名相同", thisWed.name, nextWed.name);
+check("两周各上一次：日期标签不同", [thisWed.dayText, nextWed.dayText], ["明天", "下周三 9/30"]);
+check("同一天里不会出现两张一样的卡",
+    CM.cardsForDay(twoWeeks, 4, 3).length, 1);
 
 // 关键回归：明天的课不能被判成「正在上」
 // （StyleToday 的 isCurrent 必须同时看 sameDay 和时间区间）
 const tomorrowCard = CM.tagCards([{ name: "明天的课", startMinutes: 840, endMinutes: 1060,
-                                    time: "14:00–17:40" }], false, "明天")[0];
+                                    time: "14:00–17:40" }], dayA, dayB)[0];
 const todayCard = CM.tagCards([{ name: "今天的课", startMinutes: 840, endMinutes: 1060,
-                                 time: "14:00–17:40" }], true, "")[0];
+                                 time: "14:00–17:40" }], dayA, dayA)[0];
 function inProgress(c, minutes) {
     return c.sameDay && c.startMinutes >= 0 && c.endMinutes > c.startMinutes
         && minutes >= c.startMinutes && minutes < c.endMinutes;

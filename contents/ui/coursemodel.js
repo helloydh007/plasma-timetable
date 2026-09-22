@@ -313,9 +313,9 @@ function cardsForDay(model, week, weekday) {
         var s = p0 && p0.start ? p0.start : "";
         var e = p1 && p1.end ? p1.end : "";
         out.push({
-            name: c.name,
-            room: c.room,
-            teacher: c.teacher,
+            name: cleanText(c.name),
+            room: cleanText(c.room),
+            teacher: cleanText(c.teacher),
             color: c.color,
             start: s,
             end: e,
@@ -328,13 +328,14 @@ function cardsForDay(model, week, weekday) {
 }
 
 /*
- * 给卡片补上「是不是今天」和日期标签。
+ * 给卡片补上日期相关字段：是不是今天、相对日期词、卡片上那串紧凑日期。
  *
  * 两种来源（今天的课 / 往后找的课）字段本来不一样，样式组件就得猜
  * 「sameDay 在不在」—— 漏判一次就会出现「明天的课被当成正在上」这种错。
  * 统一在这里补齐，样式只管读。
  */
-function tagCards(cards, sameDay, dayLabel) {
+function tagCards(cards, from, to) {
+    var same = dayIndex(from) === dayIndex(to);
     var out = [];
     for (var i = 0; i < (cards || []).length; i++) {
         var c = cards[i];
@@ -348,17 +349,30 @@ function tagCards(cards, sameDay, dayLabel) {
             time: c.time,
             startMinutes: c.startMinutes,
             endMinutes: c.endMinutes,
-            dayLabel: dayLabel || "",
-            sameDay: sameDay === true
+            sameDay: same,
+            // 当天不写「今天」——卡片就在「今天」这个标题下面，再标一次是废话
+            dayLabel: same ? "" : dayLabel(from, to),
+            dayText: same ? "" : dayText(from, to),
+            dateText: dateText(to)
         });
     }
     return out;
 }
 
+// 去掉首尾空白。教务系统/表格里粘出来的地点常常是个空格，
+// 不处理的话卡片上会多出一条看不见内容却占着高度的空行。
+function cleanText(s) {
+    return String(s == null ? "" : s).trim();
+}
+
+// 「9月23日」
+function dateText(date) {
+    return (date.getMonth() + 1) + "月" + date.getDate() + "日";
+}
+
 // 「今天」标题栏：今天 · 9月22日 周二
 function dayTitle(date) {
-    var names = ["日", "一", "二", "三", "四", "五", "六"];
-    return "今天 · " + (date.getMonth() + 1) + "月" + date.getDate() + "日 周" + names[date.getDay()];
+    return "今天 · " + dateText(date) + " " + weekdayLabel(weekdayOf(date));
 }
 
 // 还没上完的课（结束时间晚于 nowMinutes）。没有作息表（endMinutes < 0）时一律保留，
@@ -374,7 +388,12 @@ function remainingCards(cards, nowMinutes) {
     return out;
 }
 
-// 「今天 / 明天 / 后天 / 周三」这样的相对日期标签
+/*
+ * 相对日期词：今天 / 明天 / 后天 / 周四 / 下周三 / 下下周三
+ *
+ * 一周以内说「周四」是够的，再往后就不够了 —— 同一门课每周都上，
+ * 「周三」和「下周三」是相邻的两节，光看星期几分不出谁是谁。
+ */
 function dayLabel(from, to) {
     var diff = dayIndex(to) - dayIndex(from);
     if (diff === 0) {
@@ -386,7 +405,32 @@ function dayLabel(from, to) {
     if (diff === 2) {
         return "后天";
     }
-    return weekdayLabel(weekdayOf(to));
+    var wd = weekdayLabel(weekdayOf(to));
+    if (diff < 7) {
+        return wd;
+    }
+    return diff < 14 ? "下" + wd : "下下" + wd;
+}
+
+/*
+ * 卡片右上角那行字：「明天」/「下周三 9/30」。
+ *
+ * 明天、后天本身就是确定的，不用再写日期；再往后一律带上「日/月」——
+ * 只写「周三」的话，本周三和下周三的同一门课会变成两张一模一样的卡片，
+ * 用户报过这个「重复显示」，其实差的就是这个日期。
+ */
+function dayText(from, to) {
+    var diff = dayIndex(to) - dayIndex(from);
+    if (diff === 0) {
+        return "";
+    }
+    if (diff === 1) {
+        return "明天";
+    }
+    if (diff === 2) {
+        return "后天";
+    }
+    return dayLabel(from, to) + " " + (to.getMonth() + 1) + "/" + to.getDate();
 }
 
 
@@ -725,9 +769,9 @@ function normalizeCourse(c, index) {
     }
     weeks.sort(function (a, b) { return a - b; });
     return {
-        name: String((c && c.name) || "未命名"),
-        teacher: String((c && c.teacher) || ""),
-        room: String((c && c.room) || ""),
+        name: cleanText(c && c.name) || "未命名",
+        teacher: cleanText(c && c.teacher),
+        room: cleanText(c && c.room),
         weekday: weekday,
         startPeriod: sp,
         endPeriod: ep,

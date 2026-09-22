@@ -4,10 +4,9 @@
  * 只列今天的课。桌面上要的是「一瞥就知道今天上什么、现在上什么」，
  * 周网格那种密排小字反而不合适。
  *
- * 今天还有课就显示今天的；今天的都上完了，main.qml 会把「接下来最近的一节」
- * 递进来（带「明天」这类日期标签），免得一天课上完之后桌面直接空掉。
- *
- * 卡片用 Layout.fillHeight 平分高度，所以课多课少都塞得下，不会溢出。
+ * 今天还有没上的课就平铺今天的；今天的都上完了，main.qml 会把「接下来最近几节」
+ * 递进来（mode = future，卡片上带「明天」「下周三 9/30」这类日期），免得一天课上
+ * 完之后桌面直接空掉 —— 那恰恰是最想知道「接下来还有什么」的时候。
  */
 
 import QtQuick
@@ -18,37 +17,53 @@ import org.kde.kirigami as Kirigami
 Item {
     id: view
 
+    // "today" = 今天的课；"future" = 往后几节；"empty" = 都没有
+    property string mode: "empty"
     property var cards: []
     property string header: ""
+    property string subheader: ""
     property date now: new Date()
     // 学期结束 / 尚未开学 / 放假时由外部给一句说明，覆盖默认的「今天没课」
     property string emptyText: ""
 
-    // 正在上的那一节：既要是今天的，也要「现在」落在它的起止时间之间。
-    // 少了「是不是今天」这一半，明天同时间的课会被判成正在上（踩过）。
-    function isCurrent(c) {
-        if (!c || !c.sameDay) {
-            return false;
-        }
-        var m = view.now.getHours() * 60 + view.now.getMinutes();
-        return c.startMinutes >= 0 && c.endMinutes > c.startMinutes
-            && m >= c.startMinutes && m < c.endMinutes;
-    }
-
     ColumnLayout {
         anchors.fill: parent
-        spacing: Kirigami.Units.smallSpacing * 1.5
+        spacing: Kirigami.Units.smallSpacing
 
-        PlasmaComponents.Label {
+        // ── 标题区：主标题说现在什么情况，副标题接着说下面这块是什么 ──
+        // 两行竖着排更好看，但桌面上这个组件常常只有 240x160，多一行就少
+        // 大半张卡片，所以并排放：小字副标题跟在主标题后面。
+        RowLayout {
             Layout.fillWidth: true
             Layout.bottomMargin: Kirigami.Units.smallSpacing
-            text: view.header
-            visible: text !== ""
-            font.bold: true
-            // 默认字号在标题这个位置偏小，加一档；再和下面的卡片留点距离
-            font.pointSize: Kirigami.Theme.defaultFont.pointSize + 2
-            opacity: 0.85
-            elide: Text.ElideRight
+            spacing: Kirigami.Units.smallSpacing * 1.5
+
+            PlasmaComponents.Label {
+                text: view.header
+                visible: text !== ""
+                font.bold: true
+                // 默认字号在标题这个位置偏小，加一档
+                font.pointSize: Kirigami.Theme.defaultFont.pointSize + 2
+                opacity: 0.85
+                elide: Text.ElideRight
+                Layout.maximumWidth: implicitWidth
+                // 和副标题的底边对齐，两行字看起来才像一行
+                Layout.alignment: Qt.AlignBottom
+            }
+            PlasmaComponents.Label {
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignBottom
+                text: view.subheader
+                visible: text !== ""
+                font.pointSize: Math.max(6, Kirigami.Theme.smallFont.pointSize + 1)
+                opacity: 0.6
+                elide: Text.ElideRight
+            }
+            // 没有副标题时把主标题留在左边
+            Item {
+                Layout.fillWidth: true
+                visible: view.subheader === ""
+            }
         }
 
         PlasmaComponents.Label {
@@ -58,33 +73,17 @@ Item {
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             wrapMode: Text.Wrap
+            font.pointSize: Kirigami.Theme.defaultFont.pointSize + 1
             opacity: 0.6
             text: view.emptyText !== "" ? view.emptyText : "今天没有课"
         }
 
-        Repeater {
-            model: view.cards
-
-            delegate: CourseCard {
-                required property var modelData
-                Layout.fillWidth: true
-                // 平分高度：课多的时候每张矮一点，不会溢出到组件外面。
-                // 但要有上限 —— 只给 fillHeight 的话，一天只有一门课时那一张卡
-                // 会被拉满整个组件，文字孤零零浮在中间。
-                Layout.fillHeight: true
-                Layout.maximumHeight: Kirigami.Units.gridUnit * 3.4
-                Layout.minimumHeight: Kirigami.Units.gridUnit * 1.8
-                entry: modelData
-                // 今天没有课、退而显示后面那几节时会带日期标签，这里要透出来
-                dayLabel: modelData.dayLabel || ""
-                current: view.isCurrent(modelData)
-            }
-        }
-
-        // 剩余空间全给这个占位项，卡片就贴顶排 —— 否则课少时整块会被垂直居中
-        Item {
+        CardList {
+            Layout.fillWidth: true
             Layout.fillHeight: true
             visible: view.cards.length > 0
+            cards: view.cards
+            now: view.now
         }
     }
 }
