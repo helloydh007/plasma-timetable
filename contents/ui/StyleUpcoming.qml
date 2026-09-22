@@ -28,7 +28,7 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: Kirigami.Units.smallSpacing
+        spacing: Kirigami.Units.smallSpacing * 1.5
 
         PlasmaComponents.Label {
             Layout.fillWidth: true

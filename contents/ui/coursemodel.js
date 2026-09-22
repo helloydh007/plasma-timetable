@@ -327,6 +327,53 @@ function cardsForDay(model, week, weekday) {
     return out;
 }
 
+/*
+ * 给卡片补上「是不是今天」和日期标签。
+ *
+ * 两种来源（今天的课 / 往后找的课）字段本来不一样，样式组件就得猜
+ * 「sameDay 在不在」—— 漏判一次就会出现「明天的课被当成正在上」这种错。
+ * 统一在这里补齐，样式只管读。
+ */
+function tagCards(cards, sameDay, dayLabel) {
+    var out = [];
+    for (var i = 0; i < (cards || []).length; i++) {
+        var c = cards[i];
+        out.push({
+            name: c.name,
+            room: c.room,
+            teacher: c.teacher,
+            color: c.color,
+            start: c.start,
+            end: c.end,
+            time: c.time,
+            startMinutes: c.startMinutes,
+            endMinutes: c.endMinutes,
+            dayLabel: dayLabel || "",
+            sameDay: sameDay === true
+        });
+    }
+    return out;
+}
+
+// 「今天」标题栏：今天 · 9月22日 周二
+function dayTitle(date) {
+    var names = ["日", "一", "二", "三", "四", "五", "六"];
+    return "今天 · " + (date.getMonth() + 1) + "月" + date.getDate() + "日 周" + names[date.getDay()];
+}
+
+// 还没上完的课（结束时间晚于 nowMinutes）。没有作息表（endMinutes < 0）时一律保留，
+// 否则会把课全滤掉 —— 宁可多显示也不要莫名空着。
+function remainingCards(cards, nowMinutes) {
+    var out = [];
+    for (var i = 0; i < (cards || []).length; i++) {
+        var c = cards[i];
+        if (c.endMinutes < 0 || c.endMinutes > nowMinutes) {
+            out.push(c);
+        }
+    }
+    return out;
+}
+
 // 「今天 / 明天 / 后天 / 周三」这样的相对日期标签
 function dayLabel(from, to) {
     var diff = dayIndex(to) - dayIndex(from);

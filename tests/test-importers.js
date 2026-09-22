@@ -29,7 +29,7 @@ const CM = loadQmlJs(path.join(UI, "coursemodel.js"), [
     "assignColors", "coursesOn", "coursesInWeek", "courseNames",
     "parseWeeksText", "weeksToText", "periodByNode", "textColorFor",
     "parityOf", "applyParity", "normalizeSpan", "weeksDisplay", "isArrayLike", "slotsOn", "dimColor",
-    "cardsForDay", "dayLabel", "looksMisDecoded", "clockSkewSec", "clockOffsetToStore", "applyClockOffset"
+    "cardsForDay", "dayLabel", "remainingCards", "dayTitle", "tagCards", "looksMisDecoded", "clockSkewSec", "clockOffsetToStore", "applyClockOffset"
 ]);
 const ICS = loadQmlJs(path.join(UI, "ics.js"), [
     "splitLine", "unescapeText", "parseDateValue", "expandWeekly",
@@ -545,6 +545,61 @@ check("明天", CM.dayLabel(d0, new Date(2026, 8, 22)), "明天");
 check("后天", CM.dayLabel(d0, new Date(2026, 8, 23)), "后天");
 check("再往后用星期", CM.dayLabel(d0, new Date(2026, 8, 24)), "周四");
 check("跨月也对", CM.dayLabel(d0, new Date(2026, 9, 1)), "周四");
+
+// ── 「今日课程」：已上完的要滤掉，全上完则退而显示最近的一节 ──
+const todayCardsFixture = [
+    { name: "早课", startMinutes: 480, endMinutes: 580 },     // 08:00-09:40
+    { name: "午课", startMinutes: 840, endMinutes: 940 },     // 14:00-15:40
+    { name: "晚课", startMinutes: 1140, endMinutes: 1240 }    // 19:00-20:40
+];
+check("第一节课还没下课时三门都在",
+    CM.remainingCards(todayCardsFixture, 500).map(c => c.name), ["早课", "午课", "晚课"]);
+check("早课上完后只剩两门",
+    CM.remainingCards(todayCardsFixture, 600).map(c => c.name), ["午课", "晚课"]);
+check("正在上的那门要留着（还没下课）",
+    CM.remainingCards(todayCardsFixture, 900).map(c => c.name), ["午课", "晚课"]);
+check("刚好下课点就滤掉",
+    CM.remainingCards(todayCardsFixture, 940).map(c => c.name), ["晚课"]);
+check("全上完返回空",
+    CM.remainingCards(todayCardsFixture, 1300), []);
+check("空列表不崩", CM.remainingCards([], 600), []);
+check("没有作息表(endMinutes<0)时一律保留",
+    CM.remainingCards([{ name: "无时间", startMinutes: -1, endMinutes: -1 }], 1300).length, 1);
+
+// 今日标题
+check("今日标题", CM.dayTitle(new Date(2026, 8, 22)), "今天 · 9月22日 周二");
+check("周日标题", CM.dayTitle(new Date(2026, 8, 27)), "今天 · 9月27日 周日");
+
+// ── tagCards：两种来源的字段要统一，样式组件才不用猜 ──
+const tagged = CM.tagCards([{ name: "A", room: "R", teacher: "T", color: "#111111",
+                              start: "08:00", end: "09:40", time: "08:00–09:40",
+                              startMinutes: 480, endMinutes: 580, 杂项: 1 }], true, "");
+check("补齐 sameDay", tagged[0].sameDay, true);
+check("补齐 dayLabel", tagged[0].dayLabel, "");
+check("业务字段都带过来了",
+    [tagged[0].name, tagged[0].room, tagged[0].teacher, tagged[0].color,
+     tagged[0].time, tagged[0].startMinutes, tagged[0].endMinutes],
+    ["A", "R", "T", "#111111", "08:00–09:40", 480, 580]);
+check("只保留需要的字段", Object.keys(tagged[0]).sort(),
+    ["color", "dayLabel", "end", "endMinutes", "name", "room", "sameDay",
+     "start", "startMinutes", "teacher", "time"]);
+check("sameDay 缺省为 false",
+    CM.tagCards([{ name: "B" }], undefined, "明天")[0].sameDay, false);
+check("dayLabel 缺省为空串", CM.tagCards([{ name: "B" }], false, null)[0].dayLabel, "");
+check("空列表", CM.tagCards([], true, ""), []);
+
+// 关键回归：明天的课不能被判成「正在上」
+// （StyleToday 的 isCurrent 必须同时看 sameDay 和时间区间）
+const tomorrowCard = CM.tagCards([{ name: "明天的课", startMinutes: 840, endMinutes: 1060,
+                                    time: "14:00–17:40" }], false, "明天")[0];
+const todayCard = CM.tagCards([{ name: "今天的课", startMinutes: 840, endMinutes: 1060,
+                                 time: "14:00–17:40" }], true, "")[0];
+function inProgress(c, minutes) {
+    return c.sameDay && c.startMinutes >= 0 && c.endMinutes > c.startMinutes
+        && minutes >= c.startMinutes && minutes < c.endMinutes;
+}
+ok("同时间段的明天的课：不算正在上", inProgress(tomorrowCard, 870) === false);
+ok("同时间段的今天的课：算正在上", inProgress(todayCard, 870) === true);
 
 console.log("################ 结果 ################");
 if (fails.length === 0) {

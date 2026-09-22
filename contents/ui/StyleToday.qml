@@ -4,6 +4,9 @@
  * 只列今天的课。桌面上要的是「一瞥就知道今天上什么、现在上什么」，
  * 周网格那种密排小字反而不合适。
  *
+ * 今天还有课就显示今天的；今天的都上完了，main.qml 会把「接下来最近的一节」
+ * 递进来（带「明天」这类日期标签），免得一天课上完之后桌面直接空掉。
+ *
  * 卡片用 Layout.fillHeight 平分高度，所以课多课少都塞得下，不会溢出。
  */
 
@@ -16,13 +19,15 @@ Item {
     id: view
 
     property var cards: []
+    property string header: ""
     property date now: new Date()
     // 学期结束 / 尚未开学 / 放假时由外部给一句说明，覆盖默认的「今天没课」
     property string emptyText: ""
 
-    // 正在上的那一节：用「现在」落在起止时间之间判断
+    // 正在上的那一节：既要是今天的，也要「现在」落在它的起止时间之间。
+    // 少了「是不是今天」这一半，明天同时间的课会被判成正在上（踩过）。
     function isCurrent(c) {
-        if (!c) {
+        if (!c || !c.sameDay) {
             return false;
         }
         var m = view.now.getHours() * 60 + view.now.getMinutes();
@@ -30,19 +35,14 @@ Item {
             && m >= c.startMinutes && m < c.endMinutes;
     }
 
-    readonly property string headerText: {
-        var names = ["日", "一", "二", "三", "四", "五", "六"];
-        var d = view.now;
-        return "今天 · " + (d.getMonth() + 1) + "月" + d.getDate() + "日 周" + names[d.getDay()];
-    }
-
     ColumnLayout {
         anchors.fill: parent
-        spacing: Kirigami.Units.smallSpacing
+        spacing: Kirigami.Units.smallSpacing * 1.5
 
         PlasmaComponents.Label {
             Layout.fillWidth: true
-            text: view.headerText
+            text: view.header
+            visible: text !== ""
             font.bold: true
             opacity: 0.8
             elide: Text.ElideRight
@@ -72,6 +72,8 @@ Item {
                 Layout.maximumHeight: Kirigami.Units.gridUnit * 3.4
                 Layout.minimumHeight: Kirigami.Units.gridUnit * 1.8
                 entry: modelData
+                // 今天没有课、退而显示后面那几节时会带日期标签，这里要透出来
+                dayLabel: modelData.dayLabel || ""
                 current: view.isCurrent(modelData)
             }
         }

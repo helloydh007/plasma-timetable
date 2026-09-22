@@ -281,13 +281,8 @@ PlasmoidItem {
                 }
                 // 逐字段抄出来，不用 for-in 反射 —— QML 把对象转成 QVariantMap 之后，
                 // hasOwnProperty 那类判断会静默失效（这个坑踩过一次）。
-                out.push({
-                    name: c.name, room: c.room, teacher: c.teacher, color: c.color,
-                    start: c.start, end: c.end, time: c.time,
-                    startMinutes: c.startMinutes, endMinutes: c.endMinutes,
-                    dayLabel: CM.dayLabel(base, d),
-                    sameDay: step === 0
-                });
+                // tagCards 顺手把 sameDay / dayLabel 补齐，样式组件不用猜字段在不在。
+                out.push(CM.tagCards([c], step === 0, CM.dayLabel(base, d))[0]);
                 if (out.length >= limit) {
                     break;
                 }
@@ -296,7 +291,29 @@ PlasmoidItem {
         return out;
     }
 
-    readonly property var todayCards: dayCards(today)
+    /*
+     * 「今日课程」的数据。
+     * 今天还有没上的课就显示今天的；今天的都上完了就退而显示接下来最近的一节
+     * （可能是明天）—— 一天课上完之后恰恰是最想知道「下一节是什么」的时候，
+     * 这时候把面板空掉反而不合适。
+     */
+    readonly property var todayView: {
+        var nowMin = today.getHours() * 60 + today.getMinutes();
+        var remaining = CM.remainingCards(dayCards(today), nowMin);
+        if (remaining.length > 0) {
+            return {
+                cards: CM.tagCards(remaining, true, ""),
+                header: CM.dayTitle(today),
+                fallback: false
+            };
+        }
+        var next = upcomingCards(1);
+        if (next.length > 0) {
+            return { cards: next, header: "今天没有课了", fallback: true };
+        }
+        return { cards: [], header: CM.dayTitle(today), fallback: false };
+    }
+
     readonly property var upcomingList: upcomingCards(4)
 
     readonly property var nextUp: upcomingCards(1)
@@ -532,7 +549,8 @@ PlasmoidItem {
         Component {
             id: styleTodayComponent
             StyleToday {
-                cards: root.todayCards
+                cards: root.todayView.cards
+                header: root.todayView.header
                 now: root.today
                 emptyText: root.listEmptyText
             }
