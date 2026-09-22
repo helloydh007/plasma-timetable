@@ -45,5 +45,10 @@
     <entry name="upcomingCount" type="Int">
       <default>3</default>
     </entry>
+    <!-- 列表样式的卡片布局：card（两行卡片）| compact（紧凑行式）| timeline（日程时间轴）。
+         只影响「今日课程」和「接下来」两个样式；周网格和「下一节」不受影响。 -->
+    <entry name="cardLayout" type="String">
+      <default>card</default>
+    </entry>
   </group>
 </kcfg>

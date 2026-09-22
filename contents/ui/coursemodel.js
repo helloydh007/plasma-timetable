@@ -365,6 +365,23 @@ function cleanText(s) {
     return String(s == null ? "" : s).trim();
 }
 
+// 卡片上的「地点 · 教师」，两边都可能没有。三种卡片布局共用，免得各写一份。
+function metaText(entry) {
+    if (!entry) {
+        return "";
+    }
+    var parts = [];
+    var room = cleanText(entry.room);
+    var teacher = cleanText(entry.teacher);
+    if (room) {
+        parts.push(room);
+    }
+    if (teacher) {
+        parts.push(teacher);
+    }
+    return parts.join(" · ");
+}
+
 // 「9月23日」
 function dateText(date) {
     return (date.getMonth() + 1) + "月" + date.getDate() + "日";

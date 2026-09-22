@@ -58,6 +58,15 @@ PlasmoidItem {
         return "week";
     }
 
+    // 列表卡片的布局。同样对认不出来的值兜底 —— 配置被手改坏时退回默认卡片。
+    readonly property string cardLayout: {
+        var v = Plasmoid.configuration.cardLayout;
+        if (v === "compact" || v === "timeline") {
+            return v;
+        }
+        return "card";
+    }
+
 
     // ══════════════════ 数据 ══════════════════
 
@@ -586,6 +595,7 @@ PlasmoidItem {
                 cards: root.todayView.cards
                 header: root.todayView.header
                 subheader: root.todayView.subheader
+                cardLayout: root.cardLayout
                 now: root.today
                 emptyText: root.listEmptyText
             }
@@ -595,6 +605,7 @@ PlasmoidItem {
             id: styleUpcomingComponent
             StyleUpcoming {
                 cards: root.upcomingList
+                cardLayout: root.cardLayout
                 now: root.today
                 emptyText: root.listEmptyText
             }

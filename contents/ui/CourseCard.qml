@@ -15,6 +15,8 @@ import QtQuick.Layouts
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.kirigami as Kirigami
 
+import "coursemodel.js" as CM
+
 Rectangle {
     id: card
 
@@ -43,19 +45,7 @@ Rectangle {
     implicitHeight: row.implicitHeight + card.pad * 2
 
     // 「地点 · 教师」，两边都可能没有；都空的时候整行不画
-    readonly property string meta: {
-        if (!card.entry) {
-            return "";
-        }
-        var parts = [];
-        if (card.entry.room && String(card.entry.room).trim() !== "") {
-            parts.push(String(card.entry.room).trim());
-        }
-        if (card.entry.teacher && String(card.entry.teacher).trim() !== "") {
-            parts.push(String(card.entry.teacher).trim());
-        }
-        return parts.join(" · ");
-    }
+    readonly property string meta: CM.metaText(card.entry)
 
     RowLayout {
         id: row

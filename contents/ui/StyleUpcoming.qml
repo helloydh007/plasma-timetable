@@ -19,6 +19,8 @@ Item {
 
     property var cards: []
     property date now: new Date()
+    // 卡片布局：card / compact / timeline（外观页可切）
+    property string cardLayout: "card"
     property string emptyText: ""
 
     ColumnLayout {
@@ -52,6 +54,7 @@ Item {
             Layout.fillHeight: true
             visible: view.cards.length > 0
             cards: view.cards
+            layout: view.cardLayout
             now: view.now
         }
     }

@@ -30,7 +30,7 @@ const CM = loadQmlJs(path.join(UI, "coursemodel.js"), [
     "parseWeeksText", "weeksToText", "periodByNode", "textColorFor",
     "parityOf", "applyParity", "normalizeSpan", "weeksDisplay", "isArrayLike", "slotsOn", "dimColor",
     "cardsForDay", "dayLabel", "dayText", "remainingCards", "dayTitle", "tagCards", "looksMisDecoded", "clockSkewSec", "clockOffsetToStore", "applyClockOffset",
-    "dateText", "cleanText"
+    "dateText", "cleanText", "metaText"
 ]);
 const ICS = loadQmlJs(path.join(UI, "ics.js"), [
     "splitLine", "unescapeText", "parseDateValue", "expandWeekly",
@@ -574,6 +574,14 @@ check("日期文本不带前导零", CM.dateText(new Date(2026, 9, 1)), "10月1�
 check("清理空白", CM.cleanText(" "), "");
 check("左右去空白", CM.cleanText("  A2-206  "), "A2-206");
 check("null 安全", CM.cleanText(null), "");
+
+// 三种卡片布局共用的「地点 · 教师」
+check("地点教师都空", CM.metaText({ room: " ", teacher: "" }), "");
+check("只有地点", CM.metaText({ room: "A2-206", teacher: "" }), "A2-206");
+check("只有教师", CM.metaText({ room: "", teacher: "张三" }), "张三");
+check("两个都有", CM.metaText({ room: "A2-206", teacher: "张三" }), "A2-206 · 张三");
+check("空白被清掉", CM.metaText({ room: "  A2-206  ", teacher: " 张三 " }), "A2-206 · 张三");
+check("没有 entry", CM.metaText(null), "");
 
 // ── 「今日课程」：已上完的要滤掉，全上完则退而显示最近的一节 ──
 const todayCardsFixture = [

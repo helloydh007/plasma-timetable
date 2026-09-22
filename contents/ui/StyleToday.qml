@@ -23,6 +23,8 @@ Item {
     property string header: ""
     property string subheader: ""
     property date now: new Date()
+    // 卡片布局：card / compact / timeline（外观页可切）
+    property string cardLayout: "card"
     // 学期结束 / 尚未开学 / 放假时由外部给一句说明，覆盖默认的「今天没课」
     property string emptyText: ""
 
@@ -83,6 +85,7 @@ Item {
             Layout.fillHeight: true
             visible: view.cards.length > 0
             cards: view.cards
+            layout: view.cardLayout
             now: view.now
         }
     }
