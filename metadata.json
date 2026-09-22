@@ -13,7 +13,7 @@
         "Id": "io.github.helloydh007.timetable",
         "License": "GPL-2.0+",
         "Name": "课程表 (Timetable)",
-        "Version": "1.6.1",
+        "Version": "1.7.0",
         "Website": "https://github.com/helloydh007/plasma-timetable"
     },
     "X-Plasma-API-Minimum-Version": "6.0"

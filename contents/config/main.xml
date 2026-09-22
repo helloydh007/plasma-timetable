@@ -41,5 +41,9 @@
     <entry name="backgroundOpacity" type="Int">
       <default>100</default>
     </entry>
+    <!-- 「今日课程」回退时、以及「接下来」样式里显示多少门课。 -->
+    <entry name="upcomingCount" type="Int">
+      <default>3</default>
+    </entry>
   </group>
 </kcfg>

@@ -89,6 +89,9 @@ PlasmoidItem {
     // 今天的实际周次，不夹紧：早于开学 <= 0，学期结束后 > totalWeeks
     readonly property int rawWeekOfToday: CM.weekOf(timetable, today)
     readonly property int totalWeeks: Math.max(1, Math.round(Number(timetable.totalWeeks) || 20))
+    // 列表样式里显示多少门课。夹在 1..10：填 0 会什么都不显示，填太大塞不下。
+    readonly property int upcomingCount:
+        Math.max(1, Math.min(10, Math.round(Number(Plasmoid.configuration.upcomingCount) || 3)))
     readonly property bool termScheduled: timetable.termStart !== ""
     readonly property bool termEnded: termScheduled && rawWeekOfToday > totalWeeks
     readonly property bool termNotStarted: termScheduled && rawWeekOfToday < 1
@@ -293,9 +296,12 @@ PlasmoidItem {
 
     /*
      * 「今日课程」的数据。
-     * 今天还有没上的课就显示今天的；今天的都上完了就退而显示接下来最近的一节
-     * （可能是明天）—— 一天课上完之后恰恰是最想知道「下一节是什么」的时候，
-     * 这时候把面板空掉反而不合适。
+     * 今天还有没上的课就显示今天的；今天的都上完了就退而显示最近的三门
+     * （不一定是明天 —— 明天可能也没课），一天课上完之后恰恰是最想知道
+     * 「接下来还有什么」的时候，这时候把面板空掉反而不合适。
+     *
+     * 到了那天会自动变成当天的课表：这里依赖 today，而 today 每分钟刷新，
+     * 所以跨天后 dayCards(today) 自然就非空了。
      */
     readonly property var todayView: {
         var nowMin = today.getHours() * 60 + today.getMinutes();
@@ -307,14 +313,14 @@ PlasmoidItem {
                 fallback: false
             };
         }
-        var next = upcomingCards(1);
+        var next = upcomingCards(upcomingCount);
         if (next.length > 0) {
             return { cards: next, header: "今天没有课了", fallback: true };
         }
         return { cards: [], header: CM.dayTitle(today), fallback: false };
     }
 
-    readonly property var upcomingList: upcomingCards(4)
+    readonly property var upcomingList: upcomingCards(upcomingCount)
 
     readonly property var nextUp: upcomingCards(1)
     readonly property var nextCard: nextUp.length > 0 ? nextUp[0] : null
@@ -528,9 +534,10 @@ PlasmoidItem {
 
         // 列表类样式。「周网格」内联在下面（它和工具条、网格共用一套状态，
         // 拆出去反而要来回传一堆函数）。
+        // 留白比周网格大一档：卡片是独立的一块块，贴着组件边框会显得憋。
         Loader {
             anchors.fill: parent
-            anchors.margins: Kirigami.Units.smallSpacing
+            anchors.margins: Kirigami.Units.largeSpacing
             active: root.viewStyle !== "week"
             visible: active
             sourceComponent: {

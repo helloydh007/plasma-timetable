@@ -19,6 +19,7 @@ KCMUtils.SimpleKCM {
 
     property alias cfg_viewStyle: styleHolder.text
     property alias cfg_backgroundOpacity: opacitySlider.value
+    property alias cfg_upcomingCount: countSpin.value
 
     // 不展示，仅作为 cfg_ 的载体
     QQC2.TextField { id: styleHolder; visible: false; width: 0; height: 0 }
@@ -71,6 +72,31 @@ KCMUtils.SimpleKCM {
             opacity: 0.6
             font.pointSize: Math.max(6, Kirigami.Theme.smallFont.pointSize)
             text: i18n("面板上的小视图不受这里影响 —— 那里位置太窄，固定显示「现在 / 下一节」。")
+        }
+
+        RowLayout {
+            Kirigami.FormData.label: i18n("显示课程数量：")
+
+            QQC2.SpinBox {
+                id: countSpin
+                from: 1
+                to: 10
+                onValueModified: page.configurationChanged()
+            }
+            QQC2.Label {
+                text: i18n("门")
+                opacity: 0.7
+            }
+        }
+
+        QQC2.Label {
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 34
+            wrapMode: Text.WordWrap
+            opacity: 0.6
+            font.pointSize: Math.max(6, Kirigami.Theme.smallFont.pointSize)
+            text: i18n("「今日课程」今天没课（或课上完了）时会往后接这么多门，"
+                       + "不一定是明天 —— 明天也没课就再往后找。不足这么多就有几门显示几门。\n"
+                       + "「接下来」样式一直显示这么多门。")
         }
 
         Kirigami.Separator {

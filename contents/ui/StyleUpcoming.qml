@@ -32,9 +32,12 @@ Item {
 
         PlasmaComponents.Label {
             Layout.fillWidth: true
+            Layout.bottomMargin: Kirigami.Units.smallSpacing
             text: "接下来"
             font.bold: true
-            opacity: 0.8
+            // 默认字号在标题这个位置偏小，加一档；再和下面的卡片留点距离
+            font.pointSize: Kirigami.Theme.defaultFont.pointSize + 2
+            opacity: 0.85
         }
 
         PlasmaComponents.Label {
