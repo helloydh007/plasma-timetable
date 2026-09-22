@@ -7,7 +7,7 @@
             }
         ],
         "Category": "Date and Time",
-        "Description": "常驻桌面的周课表组件：7 列 × 节次的网格，高亮今天与当前课程。支持手动录入、导入教务系统/日历的 .ics、以及导入 WakeUp 课程表的 .wakeup_schedule 备份文件；可与法定节假日数据联动，放假那天不排课并标出「休/班」。A weekly class-timetable plasmoid for KDE Plasma 6 with manual entry, iCalendar import and WakeUp course-schedule import.",
+        "Description": "课程表 / 课表 / 周课表桌面组件：周网格 + 今日课程、接下来、下一节三种列表样式，支持手动录入、导入 ICS（iCalendar）与导入 WakeUp 课程表备份，联动中国法定节假日与调休，放假那天不排课并标出「休/班」。A class timetable / course schedule plasmoid (desktop widget) for KDE Plasma 6 with a weekly grid and list views, manual entry, iCalendar (ICS) import and WakeUp course-schedule import, plus Chinese public-holiday awareness.",
         "EnabledByDefault": true,
         "Icon": "view-calendar-day",
         "Id": "io.github.helloydh007.timetable",
