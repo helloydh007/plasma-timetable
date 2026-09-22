@@ -14,6 +14,8 @@ import QtQuick
 import QtQuick.Layouts
 
 import org.kde.plasma.plasmoid
+import org.kde.plasma.core as PlasmaCore
+import org.kde.ksvg 1.0 as KSvg
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.kirigami as Kirigami
 
@@ -24,11 +26,38 @@ import "holidays-update.js" as HolidaysNet
 PlasmoidItem {
     id: root
 
+    /*
+     * 背景由组件自己画，所以设成 NoBackground。
+     * Plasma 默认那个背景板的不透明度是改不了的，而设置里要给出可调的不透明度，
+     * 只能把背景拿过来自己画一层（见 fullRepresentation 里的 bg）。
+     * 代价是组件右键菜单里 Plasma 那个「背景」开关不再起作用 —— 配置页里有等效且更细的控制。
+     */
+    Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground
+
+    /*
+     * 色组要显式指定成 Window。
+     * widgets/background 那个 SVG 是按颜色方案上色的（里面的 ColorScheme-Background），
+     * 不指定色组时 applet 默认落在 View 上，背景会解析成白色 —— 而桌面容器的
+     * BasicAppletContainer 用的正是 Kirigami.Theme.Window，两边必须一致才看得出是同一块板。
+     */
+    Kirigami.Theme.inherit: false
+    Kirigami.Theme.colorSet: Kirigami.Theme.Window
+
     // 首次拖到桌面时的默认尺寸。必须写在根上 —— 只写在 fullRepresentation 里
     // 桌面容器不会采用（会按渲染出的最小尺寸给，网格被压成 0 高）。
     // 一周 7 列、一学期十来节，宽 860 高 540 是三行文字都能看清的下限。
     implicitWidth: 860
     implicitHeight: 540
+
+    // 显示样式。认不出来的值一律当周网格，免得配置被手改坏之后什么都不显示。
+    readonly property string viewStyle: {
+        var v = Plasmoid.configuration.viewStyle;
+        if (v === "today" || v === "upcoming" || v === "next") {
+            return v;
+        }
+        return "week";
+    }
+
 
     // ══════════════════ 数据 ══════════════════
 
@@ -221,6 +250,107 @@ PlasmoidItem {
         return out;
     }
 
+    // ══════════════════ 列表样式用的数据（今日 / 接下来 / 下一节） ══════════════════
+
+    // 某一天要上的课。学期之外、或者放假当天，都返回空 ——
+    // 「不用上课」这件事在列表样式里表现为「那天没课」，不需要另外标灰。
+    function dayCards(date) {
+        var week = CM.weekOf(timetable, date);
+        if (week < 1 || week > totalWeeks) {
+            return [];
+        }
+        var wd = CM.weekdayOf(date);
+        if (resolveDay(week, wd).off) {
+            return [];
+        }
+        return CM.cardsForDay(timetable, week, wd);
+    }
+
+    // 从今天起往后找 limit 节，跨天。今天已经上完的不算。
+    function upcomingCards(limit) {
+        var out = [];
+        var nowMin = today.getHours() * 60 + today.getMinutes();
+        var base = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        for (var step = 0; step < 21 && out.length < limit; step++) {
+            var d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + step);
+            var list = dayCards(d);
+            for (var i = 0; i < list.length; i++) {
+                var c = list[i];
+                if (step === 0 && c.endMinutes >= 0 && c.endMinutes <= nowMin) {
+                    continue;
+                }
+                // 逐字段抄出来，不用 for-in 反射 —— QML 把对象转成 QVariantMap 之后，
+                // hasOwnProperty 那类判断会静默失效（这个坑踩过一次）。
+                out.push({
+                    name: c.name, room: c.room, teacher: c.teacher, color: c.color,
+                    start: c.start, end: c.end, time: c.time,
+                    startMinutes: c.startMinutes, endMinutes: c.endMinutes,
+                    dayLabel: CM.dayLabel(base, d),
+                    sameDay: step === 0
+                });
+                if (out.length >= limit) {
+                    break;
+                }
+            }
+        }
+        return out;
+    }
+
+    readonly property var todayCards: dayCards(today)
+    readonly property var upcomingList: upcomingCards(4)
+
+    readonly property var nextUp: upcomingCards(1)
+    readonly property var nextCard: nextUp.length > 0 ? nextUp[0] : null
+    readonly property bool nextActive: {
+        var c = nextCard;
+        if (!c || !c.sameDay) {
+            return false;
+        }
+        var m = today.getHours() * 60 + today.getMinutes();
+        return c.startMinutes >= 0 && c.endMinutes > c.startMinutes
+            && m >= c.startMinutes && m < c.endMinutes;
+    }
+    readonly property string nextCountdown: {
+        var c = nextCard;
+        if (!c) {
+            return "";
+        }
+        var m = today.getHours() * 60 + today.getMinutes();
+        var mins = 0;
+        var tail = "";
+        if (nextActive) {
+            mins = c.endMinutes - m;
+            tail = "后下课";
+        } else if (c.sameDay && c.startMinutes > m) {
+            mins = c.startMinutes - m;
+            tail = "后开始";
+        } else {
+            return c.dayLabel + " " + c.start + " 开始";
+        }
+        var txt = mins >= 60
+            ? (Math.floor(mins / 60) + " 小时 " + (mins % 60) + " 分")
+            : (mins + " 分钟");
+        return txt + tail;
+    }
+
+    // 列表样式没课可显示时的说明：要区分「今天没课」和「整个学期都没课」
+    readonly property string listEmptyText: {
+        if (!hasCourses) {
+            return "还没有课程\n右键组件 → 配置课程表";
+        }
+        if (termNotStarted) {
+            return "尚未开学";
+        }
+        if (termEnded) {
+            return "本学期已结束";
+        }
+        var r = resolveDay(defaultWeek, CM.weekdayOf(today));
+        if (r.status && r.status.type === "off") {
+            return "放假：" + r.status.name;
+        }
+        return "今天没有课";
+    }
+
     // 当前显示的这一周里、所有要画出来的课程块
     readonly property var cellCourses: {
         var out = [];
@@ -364,10 +494,74 @@ PlasmoidItem {
         implicitWidth: Kirigami.Units.gridUnit * 30
         implicitHeight: Kirigami.Units.gridUnit * 21
 
+        /*
+         * 自己画的背景，用桌面主题的 widgets/background 边框 —— 桌面容器画的
+         * applet 背景就是它（desktopcontainment 的 ConfigOverlay 里用的同一个），
+         * 所以外观和原来一致。用普通 Rectangle 配 Kirigami.Theme.backgroundColor
+         * 会画出一块浅色板，和主题对不上。
+         *
+         * 这里用 opacity 是安全的：这个项没有子项，不像 Item.opacity 会把内容一起变淡。
+         */
+        KSvg.FrameSvgItem {
+            id: bg
+            anchors.fill: parent
+            imagePath: "widgets/background"
+            opacity: Math.max(0, Math.min(100, Plasmoid.configuration.backgroundOpacity)) / 100
+        }
+
+        // 列表类样式。「周网格」内联在下面（它和工具条、网格共用一套状态，
+        // 拆出去反而要来回传一堆函数）。
+        Loader {
+            anchors.fill: parent
+            anchors.margins: Kirigami.Units.smallSpacing
+            active: root.viewStyle !== "week"
+            visible: active
+            sourceComponent: {
+                switch (root.viewStyle) {
+                case "today":
+                    return styleTodayComponent;
+                case "upcoming":
+                    return styleUpcomingComponent;
+                case "next":
+                    return styleNextComponent;
+                }
+                return null;
+            }
+        }
+
+        Component {
+            id: styleTodayComponent
+            StyleToday {
+                cards: root.todayCards
+                now: root.today
+                emptyText: root.listEmptyText
+            }
+        }
+
+        Component {
+            id: styleUpcomingComponent
+            StyleUpcoming {
+                cards: root.upcomingList
+                now: root.today
+                emptyText: root.listEmptyText
+            }
+        }
+
+        Component {
+            id: styleNextComponent
+            StyleNext {
+                card: root.nextCard
+                countdown: root.nextCountdown
+                active: root.nextActive
+                emptyText: root.listEmptyText
+            }
+        }
+
         ColumnLayout {
             anchors.fill: parent
             anchors.margins: Kirigami.Units.smallSpacing
             spacing: Kirigami.Units.smallSpacing
+            visible: root.viewStyle === "week"
 
             // ── 工具条 ──
             RowLayout {

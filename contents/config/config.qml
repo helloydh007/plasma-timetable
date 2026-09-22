@@ -8,7 +8,12 @@ ConfigModel {
         source: "configCourses.qml"
     }
     ConfigCategory {
-        name: i18n("学期与节假日")
+        name: i18n("外观")
+        icon: "preferences-desktop-theme"
+        source: "configAppearance.qml"
+    }
+    ConfigCategory {
+        name: i18n("节假日")
         icon: "view-calendar"
         source: "configGeneral.qml"
     }

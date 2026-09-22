@@ -33,5 +33,13 @@
     <entry name="showOffWeekCourses" type="Bool">
       <default>false</default>
     </entry>
+    <!-- 桌面上的显示样式：week（周网格）| today（今日课程）| upcoming（接下来）| next（下一节） -->
+    <entry name="viewStyle" type="String">
+      <default>week</default>
+    </entry>
+    <!-- 背景不透明度（0-100）。0 = 完全透明，只看到内容浮在桌面上。 -->
+    <entry name="backgroundOpacity" type="Int">
+      <default>100</default>
+    </entry>
   </group>
 </kcfg>

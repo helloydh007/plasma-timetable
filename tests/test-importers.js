@@ -28,7 +28,8 @@ const CM = loadQmlJs(path.join(UI, "coursemodel.js"), [
     "mapTimeToPeriods", "mapEvent", "colorFor", "normalizeCourse", "mergeSlots",
     "assignColors", "coursesOn", "coursesInWeek", "courseNames",
     "parseWeeksText", "weeksToText", "periodByNode", "textColorFor",
-    "parityOf", "applyParity", "normalizeSpan", "weeksDisplay", "isArrayLike", "slotsOn", "dimColor", "looksMisDecoded", "clockSkewSec", "clockOffsetToStore", "applyClockOffset"
+    "parityOf", "applyParity", "normalizeSpan", "weeksDisplay", "isArrayLike", "slotsOn", "dimColor",
+    "cardsForDay", "dayLabel", "looksMisDecoded", "clockSkewSec", "clockOffsetToStore", "applyClockOffset"
 ]);
 const ICS = loadQmlJs(path.join(UI, "ics.js"), [
     "splitLine", "unescapeText", "parseDateValue", "expandWeekly",
@@ -498,6 +499,52 @@ ok("灰显后确实变暗", (() => {
 check("灰显值合法", /^#[0-9a-f]{6}$/.test(dimBlue), true);
 check("非法颜色有兜底", /^#[0-9a-f]{6}$/.test(CM.dimColor("不是颜色")), true);
 check("灰显可重复（纯函数）", CM.dimColor("#3f51b5"), dimBlue);
+
+console.log("################ 九、列表样式用的数据 ################\n");
+
+const listModel = CM.parseModel(JSON.stringify({
+    termStart: "2026-09-07", totalWeeks: 18,
+    periods: [
+        { node: 1, start: "08:00", end: "08:45" },
+        { node: 2, start: "08:55", end: "09:40" },
+        { node: 3, start: "14:00", end: "14:45" }
+    ],
+    courses: [
+        { name: "高等数学", weekday: 1, startPeriod: 1, endPeriod: 2, weeks: [1,2,3,4],
+          room: "东1A-101", teacher: "张三", color: "#3f51b5" },
+        { name: "大学英语", weekday: 1, startPeriod: 3, endPeriod: 3, weeks: [1,2,3,4],
+          room: "外语楼", teacher: "赵六", color: "#00897b" }
+    ]
+}));
+
+// 第 3 周周一（2026-09-21）
+const cards = CM.cardsForDay(listModel, 3, 1);
+check("卡片数量", cards.length, 2);
+check("卡片按时间排", cards.map(c => c.name), ["高等数学", "大学英语"]);
+check("时间文本", cards.map(c => c.time), ["08:00–09:40", "14:00–14:45"]);
+check("起止分钟", [cards[0].startMinutes, cards[0].endMinutes], [480, 580]);
+check("地点教师带出来了", [cards[0].room, cards[0].teacher], ["东1A-101", "张三"]);
+check("颜色带出来了", cards[0].color, "#3f51b5");
+// 这一周不上就没有卡片
+check("非本周没有卡片", CM.cardsForDay(listModel, 9, 1), []);
+check("没课的星期没有卡片", CM.cardsForDay(listModel, 3, 2), []);
+// 作息表缺行时不该崩，时间留空
+const noPeriods = CM.parseModel(JSON.stringify({
+    termStart: "2026-09-07", totalWeeks: 18,
+    courses: [{ name: "自习", weekday: 1, startPeriod: 1, endPeriod: 1, weeks: [1] }]
+}));
+const np = CM.cardsForDay(noPeriods, 1, 1);
+check("没有作息表也能出卡片", np.length, 1);
+check("时间文本为空而不是 NaN", np[0].time, "");
+check("分钟为 -1", [np[0].startMinutes, np[0].endMinutes], [-1, -1]);
+
+// 相对日期标签
+const d0 = new Date(2026, 8, 21);
+check("今天", CM.dayLabel(d0, new Date(2026, 8, 21)), "今天");
+check("明天", CM.dayLabel(d0, new Date(2026, 8, 22)), "明天");
+check("后天", CM.dayLabel(d0, new Date(2026, 8, 23)), "后天");
+check("再往后用星期", CM.dayLabel(d0, new Date(2026, 8, 24)), "周四");
+check("跨月也对", CM.dayLabel(d0, new Date(2026, 9, 1)), "周四");
 
 console.log("################ 结果 ################");
 if (fails.length === 0) {

@@ -1,0 +1,85 @@
+/*
+ * 显示样式：今日课程
+ *
+ * 只列今天的课。桌面上要的是「一瞥就知道今天上什么、现在上什么」，
+ * 周网格那种密排小字反而不合适。
+ *
+ * 卡片用 Layout.fillHeight 平分高度，所以课多课少都塞得下，不会溢出。
+ */
+
+import QtQuick
+import QtQuick.Layouts
+import org.kde.plasma.components as PlasmaComponents
+import org.kde.kirigami as Kirigami
+
+Item {
+    id: view
+
+    property var cards: []
+    property date now: new Date()
+    // 学期结束 / 尚未开学 / 放假时由外部给一句说明，覆盖默认的「今天没课」
+    property string emptyText: ""
+
+    // 正在上的那一节：用「现在」落在起止时间之间判断
+    function isCurrent(c) {
+        if (!c) {
+            return false;
+        }
+        var m = view.now.getHours() * 60 + view.now.getMinutes();
+        return c.startMinutes >= 0 && c.endMinutes > c.startMinutes
+            && m >= c.startMinutes && m < c.endMinutes;
+    }
+
+    readonly property string headerText: {
+        var names = ["日", "一", "二", "三", "四", "五", "六"];
+        var d = view.now;
+        return "今天 · " + (d.getMonth() + 1) + "月" + d.getDate() + "日 周" + names[d.getDay()];
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: Kirigami.Units.smallSpacing
+
+        PlasmaComponents.Label {
+            Layout.fillWidth: true
+            text: view.headerText
+            font.bold: true
+            opacity: 0.8
+            elide: Text.ElideRight
+        }
+
+        PlasmaComponents.Label {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: view.cards.length === 0
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            wrapMode: Text.Wrap
+            opacity: 0.6
+            text: view.emptyText !== "" ? view.emptyText : "今天没有课"
+        }
+
+        Repeater {
+            model: view.cards
+
+            delegate: CourseCard {
+                required property var modelData
+                Layout.fillWidth: true
+                // 平分高度：课多的时候每张矮一点，不会溢出到组件外面。
+                // 但要有上限 —— 只给 fillHeight 的话，一天只有一门课时那一张卡
+                // 会被拉满整个组件，文字孤零零浮在中间。
+                Layout.fillHeight: true
+                Layout.maximumHeight: Kirigami.Units.gridUnit * 3.4
+                Layout.minimumHeight: Kirigami.Units.gridUnit * 1.8
+                entry: modelData
+                current: view.isCurrent(modelData)
+            }
+        }
+
+        // 剩余空间全给这个占位项，卡片就贴顶排 —— 否则课少时整块会被垂直居中
+        Item {
+            Layout.fillHeight: true
+            visible: view.cards.length > 0
+        }
+    }
+}

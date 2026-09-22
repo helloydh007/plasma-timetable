@@ -299,6 +299,51 @@ function clockSkewSec(serverIso, localNow) {
 }
 
 /*
+ * 某一天要上的课，按时间排好，附上起止时间和时间文本。
+ * 给「今日课程」「接下来」这类列表样式用 —— 它们不该自己算时间，
+ * 否则节次表和课块两处逻辑各写一遍，早晚对不上。
+ */
+function cardsForDay(model, week, weekday) {
+    var out = [];
+    var list = slotsOn(model, week, weekday, false);
+    for (var i = 0; i < list.length; i++) {
+        var c = list[i].course;
+        var p0 = periodByNode(model, c.startPeriod);
+        var p1 = periodByNode(model, c.endPeriod);
+        var s = p0 && p0.start ? p0.start : "";
+        var e = p1 && p1.end ? p1.end : "";
+        out.push({
+            name: c.name,
+            room: c.room,
+            teacher: c.teacher,
+            color: c.color,
+            start: s,
+            end: e,
+            time: s && e ? (s + "–" + e) : (s || e),
+            startMinutes: p0 ? minutesOfTime(p0.start) : -1,
+            endMinutes: p1 ? minutesOfTime(p1.end) : -1
+        });
+    }
+    return out;
+}
+
+// 「今天 / 明天 / 后天 / 周三」这样的相对日期标签
+function dayLabel(from, to) {
+    var diff = dayIndex(to) - dayIndex(from);
+    if (diff === 0) {
+        return "今天";
+    }
+    if (diff === 1) {
+        return "明天";
+    }
+    if (diff === 2) {
+        return "后天";
+    }
+    return weekdayLabel(weekdayOf(to));
+}
+
+
+/*
  * 该存进配置的偏移量。
  * 偏差小于一天就不动：那多半只是走时漂移，校正反而让人困惑
  * （而且校正常常会和技术上正确的显示差几秒，用户会以为是 bug）。
